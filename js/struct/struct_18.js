@@ -1,0 +1,68 @@
+window.struct_18 = {
+	ver: 18,
+	editorVer: "18",
+	main: [
+		"unknown_head", "int16",
+		"sht_off_cnt", "int16",
+		"判定点大小（未使用）", "float",
+		"擦弹范围（未使用）", "float",
+		"道具吸取范围（未使用）", "float",
+		"高速直向移速", "float",
+		"低速直向移速", "float",
+		"高速斜向移速", "float",
+		"低速斜向移速", "float",
+		"最大power", "int16",
+		"帧伤上限（未使用）", "int16",
+		"SA_power_divisor", "int32",
+		"帧伤上限", "int32",
+		"unknown_2", "int32",
+		"unknown_3", "int32",
+		"unknown_4", "int32",
+		"unknown_5", "int32",
+		"unknown_6", "int32",
+		"option_pos", "option_pos",
+		"sht_off", "sht_off",
+		"sht_arr", "sht_arr"
+	],
+	option_pos: [
+		"x", "float",
+		"y", "float"
+	],
+	sht_off: [
+		"offset", "uint32"
+	],
+	sht_arr: [
+		"发射间隔", "byte",
+		"发射延迟", "byte",
+		"子弹伤害", "int16",
+		"发弹位置偏移量X", "float",
+		"发弹位置偏移量Y", "float",
+		"弹幕判定_a", "float",
+		"弹幕判定_b", "float",
+		"弹幕角度", "float",
+		"弹幕速度", "float",
+		"unknown_sht_int32", "int32",
+		"发射子机", "byte",
+		"unknown_sht_byte_0", "byte",
+		"纹理", "byte",
+		"击中纹理", "byte",
+		"音效ID", "int16",
+        "new_th18_int32", "int32",
+		"发射间隔2", "byte",
+		"发射延迟2", "byte",
+		"初始效果", "int32",
+		"每帧效果", "int32",
+		"_old_on_draw", "int32",
+		"子弹击中效果", "int32",
+		"flags", "flags"
+	],
+	sht_off_type: "rel",
+	option_pos_len: 0xA0,
+	max_opt: 0x04,
+	flags_len: 0x20,
+	flag_size: 4,
+	type: "maingame",
+	forced_shtoffarr_len: 0x28, // TODO: check if it's actually forced in th18 (it probably still is)
+	f_uf_shooter_split: true,
+	dummy_offset_value: 0x00000000
+};

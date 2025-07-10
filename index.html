@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>.sht编辑器</title>
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script src="js/lib/encoding.min.js"></script>
+    <!-- NEWHOU -->
+    <script src="js/struct/struct_19.js"></script>
+    <script src="js/struct/struct_18.5.js"></script>
+    <script src="js/struct/struct_18.js"></script>
+    <script src="js/struct/struct_17.js"></script>
+    <script src="js/struct/struct_16.js"></script>
+    <script src="js/struct/struct_16-sub.js"></script>
+    <script src="js/struct/struct_15.js"></script>
+    <script src="js/struct/struct_14.3.js"></script>
+    <script src="js/struct/struct_14.js"></script>
+    <script src="js/struct/struct_13.js"></script>
+    <script src="js/struct/struct_12.8.js"></script>
+    <script src="js/struct/struct_12.js"></script>
+    <script src="js/struct/struct_alcostg.js"></script>
+    <script src="js/struct/struct_10.js"></script>
+    <script src="js/struct/struct_09.js"></script>
+    <script src="js/struct/struct_08.js"></script>
+    <script src="js/struct/struct_07.js"></script>
+    <script src="js/vartypes.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/import.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/sanae.js"></script>
+    <script src="js/main.js"></script>
+</head>
+<body>
+    <div class="toolbar-inline-positioner"></div>
+    <div class="toolbar">
+        <div class="toolbar-entry">
+            <div class="toolbar-entry-text">文件</div>
+            <div class="toolbar-dropdown">
+                <div class="dropdown-entry-header">导入</div>
+                <div class="dropdown-entry" data-toolbar="open">加载 (.sht)</div>
+                <div class="dropdown-entry" data-toolbar="openJson">加载 (.json)</div>
+                <div class="dropdown-entry" data-toolbar="openLS">加载 (缓存)</div>
+                <div class="dropdown-entry-header">导出</div>
+                <!-- <div class="dropdown-entry" data-toolbar="opentest">加载测试 .sht</div> -->
+                <div class="dropdown-entry" data-toolbar="export">保存 (.sht)</div>
+                <div class="dropdown-entry" data-toolbar="exportJson">保存 (.json)</div>
+                <div class="dropdown-entry" data-toolbar="exportLS">保存 (缓存)</div>
+            </div>
+        </div>
+        <div class="toolbar-entry">
+            <div class="toolbar-entry-text">工具</div>
+            <div class="toolbar-dropdown">
+                <div class="dropdown-entry" data-toolbar="console">控制台</div>
+                <div class="dropdown-entry" data-toolbar="raddeg">弧度转换器</div>
+            </div>
+        </div>
+        <div class="toolbar-entry">
+            <div class="toolbar-entry-text">帮助</div>
+            <div class="toolbar-dropdown">
+                <div class="dropdown-entry" data-toolbar="readme">README</div>
+                <div class="dropdown-entry" data-toolbar="github">GitHub仓库</div>
+                <div class="dropdown-entry" data-toolbar="info">信息</div>
+            </div>
+        </div>
+        <div class="file-info">未加载文件</div>
+        <div class="clipboard-info">
+            <span class="clipboard-txt">剪贴板: </span>
+            <span class="clipboard-content">空</span>
+        </div>
+    </div>
+
+    <div class="main-wrapper">
+        <div class="file-tree"></div>
+        <div class="table-container"></div>
+    </div>
+
+    <div class="tip"></div>
+
+    <div class="template">
+        <div class="editor-window template">
+            <div class="window-topbar">
+                <div class="window-header">提示</div>
+                <div class="window-close">X</div>
+            </div>
+            <div class="window-content">
+            </div>
+        </div>
+        <div class="console">
+            <div class="log"></div>
+            <div class="eval">
+                <input class="eval-input" placeholder="输入命令">
+            </div>
+        </div>
+        <div class="raddeg">
+            <table>
+				<tr>
+					此转换器用于转换你想填的角度
+					<br>例如在.sht里面主炮Angle值为1.5707963267948966
+					<br>实际上游戏内角度为90度
+				</tr>
+				<tr><td>角度</td><td><input class="deg-input"></td><td><button class="rad-btt" onclick="toRad()">转换为弧度</button></td></tr>
+                <tr><td>弧度</td><td><input class="rad-input"></td><td><button class="deg-btt" onclick="toDeg()">转换为度数</button></td></tr>
+            </table>
+        </div>
+        <div class="open">
+            <input type="file" class="file-input" accept=".sht" onchange="openFile(this.files)">
+            <button onclick="readFile()">加载</button>
+            <div class="version-select">
+                <select class="sht-ver">
+                    <!-- NEWHOU -->
+                    <option value="19">v19 (兽王园)</option>
+                    <option value="18.5">v18.5 (黑市)</option>
+                    <option value="18">v18 (虹龙洞)</option>
+                    <option value="17">v17 (鬼形兽)</option>
+                    <option value="16.5">v16.5 (噩梦日记)</option>
+                    <option value="16">v16 (天空璋)</option>
+                    <option value="16-sub">v16-sub (天空璋 子机)</option>
+                    <option value="15">v15 (绀珠传)</option>
+                    <option value="14.3">v14.3 (天邪鬼)</option>
+                    <option value="14">v14 (辉针城)</option>
+                    <option value="13">v13 (神灵庙)</option>
+                    <option value="12.8">v12.8 (妖精大战争)</option>
+                    <option value="12">v12 (星莲船)</option>
+                    <option value="11">v11 (地灵殿)</option>
+                    <option value="alcostg">v10.3 (黄昏酒场)</option>
+                    <option value="10">v10 (风神录)</option>
+                    <option value="09">v09 (花映冢)</option>
+                    <option value="08">v08 (永夜抄)</option>
+                    <option value="07">v07 (妖妖梦)</option>
+                </select>
+                选择 .sht 版本
+            </div>
+        </div>
+        <div class="export">
+            <input placeholder="文件名" class="filename"> <button onclick="exportSht()">保存</button>
+            <div class="version-select">
+                <select class="sht-ver-out"></select>
+                选择 .sht 版本
+            </div>
+        </div>
+        <div class="openLS">
+            <b>从之前保存的文件中选择</b>
+            <select class="openLS-sel"></select> <button onclick="loadLS()">加载</button> <button onclick="deleteFromLS()">删除</button>
+        </div>
+        <div class="openJson">
+            <b>注意: </b>JSON导入没有验证。
+            <input type="file" class="file-input" accept=".json" onchange="openFileJson(this.files)">
+            <button onclick="readFileJson()">加载</button>
+            <div class="version-select">
+                <select class="json-ver-in"></select>
+                选择游戏版本
+            </div>
+        </div>
+    </div>
+</body>
+</html>
