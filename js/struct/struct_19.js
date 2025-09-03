@@ -61,7 +61,7 @@ window.struct_19 = {
 		"func_2?", "int16",
 		"func_3?", "int16",
 		"func_4?", "int16",
-		"_old_on_draw", "int32",
+		"渲染效果", "int32",
 		"func_on_hit", "int32",
 		"flags", "flags"
 	],

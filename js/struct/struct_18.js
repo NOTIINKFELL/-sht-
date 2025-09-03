@@ -52,7 +52,7 @@ window.struct_18 = {
 		"发射延迟2", "byte",
 		"初始效果", "int32",
 		"每帧效果", "int32",
-		"_old_on_draw", "int32",
+		"渲染效果", "int32",
 		"子弹击中效果", "int32",
 		"flags", "flags"
 	],

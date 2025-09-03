@@ -72,10 +72,10 @@ function toolbarAction(action) {
 			openRadDeg();
 		break;
 		case "github":
-			window.open("https://github.com/Priw8/sht-webedit",  "_blank");
+			window.open("https://github.com/NOTIINKFELL/-sht-",  "_blank");
 		break;
 		case "readme":
-			window.open("https://github.com/Priw8/sht-webedit/blob/master/README.md", "_blank");
+			window.open("https://github.com/NOTIINKFELL/-sht-/blob/main/README.md", "_blank");
 		break;
 		case "info":
 			openInfo();
@@ -282,11 +282,12 @@ function toRad() {
 
 function openInfo() {
 	editorWindow({
-		header: "Info",
-		content: "<b>.sht webeditor v"+version+" by Priw8 & <a href='https://github.com/Priw8/sht-webedit/graphs/contributors' target='_blank'>contributors</a></b><br>" + 
-				 "discord: Priw8#9873<br>also check out the <a href='https://discord.gg/fvPJvHJ' target='_blank'>ZUNcode server!</a><br><br><b>Changelog</b>- "
+		header: "信息",
+		content: "<b>.sht 编辑器 v"+version+" 由 Priw8 & <a href='https://github.com/Priw8/sht-webedit/graphs/contributors' target='_blank'>贡献者</a> 开发 <br>非官方汉化:NOT_INK_FELL</b><br>" + 
+				 "Discord: Priw8#9873<br>您也可以查看 <a href='https://discord.gg/fvPJvHJ' target='_blank'>ZUNcode 服务器!</a><br><br><b>更新日志</b>- "
 				 +changelog.join("<br>- "),
 		width: 300
+
 	});
 };
 
@@ -638,9 +639,9 @@ function generateOptionPosTable(data, struct) {
 		let pos = data.option_pos[foc];
 		html +=  "<h3>"+foccn+"</h3>";
 		for (let i=1; i<pos.length;i++) {
-			html += "<b>"+i+" power</b>";
+			html += "<b>"+i+" 火力</b>";
 			html += "<table>";
-			html += "<tr><th>opt no.</th><th>x</th><th>y</th></tr>"
+			html += "<tr><th>子机</th><th>x</th><th>y</th></tr>"
 			for (let j=0; j<i; j++) {
 				let coords = pos[i][j];
 				html += `
@@ -663,7 +664,7 @@ function generateOptionPosTable(data, struct) {
 function generateShotOffsetTable(data, struct) {
 	log("generate sht_off table");
 	let offs = data.sht_off;
-	let html = "<h3>This table is read-only, offsets are recalculated when exporting</h3>";
+	let html = "<h3>此表格为只读状态，偏移量在导出时会重新计算（无法更改）</h3>";
 	html += "<table>";
 	html += "<tr><th>no.</th><th>offset</th></tr>";
 	for (let i=0; i<offs.length; i++) {
