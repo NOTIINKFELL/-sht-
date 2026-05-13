@@ -13,7 +13,7 @@
     <script src="js/struct/struct_16.js"></script>
     <script src="js/struct/struct_16-sub.js"></script>
     <script src="js/struct/struct_15.js"></script>
-    <script src="js/struct/struct_14.3.js"></script>
+    <script src="js/struct/struct_14.2.js"></script>
     <script src="js/struct/struct_14.js"></script>
     <script src="js/struct/struct_13.js"></script>
     <script src="js/struct/struct_12.8.js"></script>
@@ -52,6 +52,7 @@
             <div class="toolbar-dropdown">
                 <div class="dropdown-entry" data-toolbar="console">控制台</div>
                 <div class="dropdown-entry" data-toolbar="raddeg">弧度转换器</div>
+                <div class="dropdown-entry" data-toolbar="refresh">清理缓存并刷新</div> <!-- 新增的清理缓存并刷新功能 -->
             </div>
         </div>
         <div class="toolbar-entry">
@@ -93,13 +94,25 @@
         </div>
         <div class="raddeg">
             <table>
-				<tr>
-					此转换器用于转换你想填的角度
-					<br>例如在.sht里面主炮Angle值为1.5707963267948966
-					<br>实际上游戏内角度为-90度
-				</tr>
-				<tr><td>角度</td><td><input class="deg-input"></td><td><button class="rad-btt" onclick="toRad()">转换为弧度</button></td></tr>
-                <tr><td>弧度</td><td><input class="rad-input"></td><td><button class="deg-btt" onclick="toDeg()">转换为度数</button></td></tr>
+                <tr>
+                    <td>此转换器用于转换你想填的角度</td>
+                </tr>
+                <tr>
+                    <td>例如在.sht里面主炮Angle值为1.5707963267998966</td>
+                </tr>
+                <tr>
+                    <td>实际上游戏内角度为-90度</td>
+                </tr>
+                <tr>
+                    <td>角度</td>
+                    <td><input class="deg-input"></td>
+                    <td><button class="rad-btt" onclick="toRad()">转换为弧度</button></td>
+                </tr>
+                <tr>
+                    <td>弧度</td>
+                    <td><input class="rad-input"></td>
+                    <td><button class="deg-btt" onclick="toDeg()">转换为度数</button></td>
+                </tr>
             </table>
         </div>
         <div class="open">
@@ -152,5 +165,13 @@
             </div>
         </div>
     </div>
+
+    <script>
+        // 清理缓存并刷新页面的函数
+        function refreshPageWithCacheBust() {
+            var randomNumber = Math.random();
+            window.location.href = window.location.href.split('?')[0] + '?r=' + randomNumber;
+        }
+    </script>
 </body>
 </html>
