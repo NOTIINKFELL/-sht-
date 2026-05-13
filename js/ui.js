@@ -570,6 +570,18 @@ function reloadCurrentEditor() {
 	loadTable.apply(window, activeTable);
 };
 
+// 折叠功能处理函数
+function toggleCollapsible(e) {
+	let $header = e.target.closest(".collapsible-header");
+	if (!$header) return;
+	
+	let $content = $header.nextElementSibling;
+	if ($content && $content.classList.contains("collapsible-content")) {
+		$header.classList.toggle("collapsed");
+		$content.classList.toggle("collapsed");
+	}
+};
+
 function generateEditorTable(data, struct) {
 	shtObject = data;
 	$active = null;
@@ -580,6 +592,7 @@ function generateEditorTable(data, struct) {
 	log("generate main table");
 
 	let html = "";
+	html += "<details class='collapsible-table' open><summary>主属性表</summary>";
 	html += "<table>";
 	html += "<tr><th>属性</th><th>数值</th></tr>";
 	for (let i=0; i<struct.main.length; i+=2) {
@@ -607,6 +620,7 @@ function generateEditorTable(data, struct) {
 		<td><input value="${data.real_sht_off_cnt}" data-type="int32" data-stat="real_sht_off_cnt"></td>
 	</tr>`
 	html += "</table>";
+	html += "</details>";
 
 	let $main = document.createElement("div");
 	$main.innerHTML = html;
@@ -618,13 +632,14 @@ function generateEditorTable(data, struct) {
 function generateSpellNameArrayTable(data, struct) {
 	log("generate spellname_arr table");
 	data = data.spellname_arr;
-	let html = "<h3>spellname_arr</h3>";
+	let html = "<details class='collapsible-table'><summary>符卡名称表</summary>";
 	for (let i=0; i<data.length; i++) {
 		let name = data[i];
 		html += "符卡名 "+i+": ";
 		html += "<input style='width: 300px' value='"+sanitizeString(name)+"' data-type='shift_jis string' data-stat='spellname-"+i+"'>";
 		html += "<br><br>";
 	}
+	html += "</details>";
 	let $spellname_arr = document.createElement("div");
 	$spellname_arr.innerHTML = html;
 	tables.spellname_arr = $spellname_arr;
@@ -637,9 +652,9 @@ function generateOptionPosTable(data, struct) {
 		let foccn = (focused ? "低速" : "高速");
 		let foc = (focused ? "focused" : "unfocused");
 		let pos = data.option_pos[foc];
-		html +=  "<h3>"+foccn+"</h3>";
+		html += `<details class='collapsible-table'><summary>${foccn} - 子机位置</summary>`;
 		for (let i=1; i<pos.length;i++) {
-			html += "<b>"+i+" 火力</b>";
+			html += `<details class='collapsible-table'><summary>${i} 火力</summary>`;
 			html += "<table>";
 			html += "<tr><th>子机</th><th>x</th><th>y</th></tr>"
 			for (let j=0; j<i; j++) {
@@ -652,8 +667,10 @@ function generateOptionPosTable(data, struct) {
 				</tr>
 				`;
 			};
-			html +=  "</table><br>";
+			html +=  "</table>";
+			html += "</details>";
 		};
+		html += "</details>";
 	};
 	
 	let $option_pos = document.createElement("div");
@@ -664,7 +681,8 @@ function generateOptionPosTable(data, struct) {
 function generateShotOffsetTable(data, struct) {
 	log("generate sht_off table");
 	let offs = data.sht_off;
-	let html = "<h3>此表格为只读状态，偏移量在导出时会重新计算（无法更改）</h3>";
+	let html = "<details class='collapsible-table'><summary>射击偏移表 (只读)</summary>";
+	html += "<h3>此表格为只读状态，偏移量在导出时会重新计算（无法更改）</h3>";
 	html += "<table>";
 	html += "<tr><th>no.</th><th>offset</th></tr>";
 	for (let i=0; i<offs.length; i++) {
@@ -676,6 +694,7 @@ function generateShotOffsetTable(data, struct) {
 		`;
 	};
 	html += "</table>";
+	html += "</details>";
 	
 	let $sht_off = document.createElement("div");
 	$sht_off.innerHTML = html;
@@ -703,6 +722,7 @@ function generateShootArrayTable(data, struct) {
 				let $wrap = document.createElement("div");
 				$wrap.classList.add("shooter-table");
 				$wrap.innerHTML = html;
+				$wrap.addEventListener("click", toggleCollapsible);
 				tables.sht_arr[foc][pow].push($wrap);
 			};
 
@@ -741,10 +761,14 @@ function generateShootArrayTable(data, struct) {
 };
 
 function generateOneShooterTable(shooter, shtstruct, flags_len, flag_size, foc, pow, i) {
+	let bindNumber = shooter["绑定子机"] || shooter["th19绑定子机"] || shooter.bind || shooter.option || 0;
 	let html = "";
-	html += "<i>发射器 "+i+"</i>";
-	html += "<button style='width: 50%' onclick='removeShooter("+i+", this)'>删除此发射器</button>";
-	html += "<button style='width: 50%' onclick='copyShooter("+i+")'>复制此发射器</button>";
+	html += `<details class='shooter-detail'>`;
+	html += `<summary>📌 发射器 ${i} (子机${bindNumber})</summary>`;
+	html += "<div style='display: flex; gap: 10px; margin-bottom: 10px;'>";
+	html += "<button style='flex: 1;' onclick='removeShooter("+i+", this)'>🗑️ 删除</button>";
+	html += "<button style='flex: 1;' onclick='copyShooter("+i+")'>📋 复制</button>";
+	html += "</div>";
 	html += "<table>";
 	html += "<tr><th>属性</th><th>数值</th></tr>";
 	for (let j=0; j<shtstruct.length; j+=2) {
@@ -779,6 +803,7 @@ function generateOneShooterTable(shooter, shtstruct, flags_len, flag_size, foc, 
 		};
 	};
 	html += "</table>";
+	html += "</details>";
 	return html;
 };
 

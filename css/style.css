@@ -296,6 +296,69 @@ input.eval-input {
   margin: 10px;
 }
 
+/* ===== 折叠功能 ===== */
+details.collapsible-table {
+  margin: 10px 0;
+  background: var(--element-bg);
+  border: 1px solid var(--border-primary);
+  border-radius: 5px;
+  padding: 10px;
+}
+
+details.collapsible-table > summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 8px;
+  margin: -10px -10px 10px -10px;
+  background: var(--element-bg);
+  border-radius: 5px 5px 0 0;
+  transition: background 0.2s;
+}
+
+details.collapsible-table > summary:hover {
+  background: var(--hover-bg);
+}
+
+details.collapsible-table > summary::marker {
+  color: #EEEEEE;
+}
+
+.collapsible-table > *:not(summary) {
+  margin-top: 10px;
+}
+
+details.shooter-detail {
+  margin: 10px 0;
+  background: var(--element-bg);
+  border: 1px solid var(--border-primary);
+  border-radius: 5px;
+  padding: 10px;
+}
+
+details.shooter-detail > summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 10px 12px;
+  margin: -10px -10px 10px -10px;
+  background: linear-gradient(135deg, #555555 0%, #444444 100%);
+  border-radius: 5px 5px 0 0;
+  border-bottom: 2px solid var(--border-primary);
+  font-weight: bold;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+details.shooter-detail > summary:hover {
+  background: linear-gradient(135deg, #666666 0%, #555555 100%);
+}
+
+details.shooter-detail > summary::marker {
+  color: #EEEEEE;
+  font-size: 16px;
+}
+
 /* ===== 提示工具 ===== */
 .tip {
   position: absolute;
