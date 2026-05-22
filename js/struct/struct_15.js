@@ -13,7 +13,7 @@ window.struct_15 = {
 		"低速斜向移速", "float",
 		"最大power", "int16",
 		"帧伤上限（无法使用）", "int16",
-		"SA_power_divisor", "int32",
+		"地灵殿_火力除数", "int32",
 		"帧伤上限", "int32",
 		"unknown_2", "int32",
 		"unknown_3", "int32",
