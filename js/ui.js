@@ -71,6 +71,9 @@ function toolbarAction(action) {
 		case "raddeg":
 			openRadDeg();
 		break;
+		case "refresh":
+			refreshPageWithCacheBust();
+		break;
 		case "github":
 			window.open("https://github.com/NOTIINKFELL/-sht-",  "_blank");
 		break;
