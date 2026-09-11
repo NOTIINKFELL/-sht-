@@ -367,8 +367,22 @@ function getLastValid(table, stat, foc, pow) {
 function onInput(e) {
 	let $targ = e.target;
 	if ($targ.dataset.type) {
+		if (activeTable[0] == "sht_arr" && isShooterBindStat($targ.dataset.stat)) return;
 		tableInput($targ, $targ.value, $targ.dataset.type, $targ.dataset.stat);
 	};
+};
+
+function confirmShooterBind($button) {
+	let $input = $button.parentElement.querySelector("input[data-stat]");
+	let stat = $input.dataset.stat;
+	let shooterIndex = Number(stat.split("-")[0]);
+	tableInput($input, $input.value, $input.dataset.type, stat);
+	updateShooterGrouping(shooterIndex);
+};
+
+function isShooterBindStat(stat) {
+	let bindStat = stat.split("-")[1];
+	return bindStat == "绑定子机" || bindStat == "th19绑定子机" || bindStat == "bind" || bindStat == "option";
 };
 
 function tableInput($targ, val, type, stat) {
@@ -456,6 +470,7 @@ function initUI() {
 
 	document.addEventListener("keydown", onInput);
 	document.addEventListener("keyup", onInput);
+	document.addEventListener("input", onInput);
 };
 
 function showTip($targ) {
@@ -672,7 +687,6 @@ function generateOptionPosTable(data, struct) {
 		};
 		html += "</details>";
 	};
-	
 	let $option_pos = document.createElement("div");
 	$option_pos.innerHTML = html;
 	tables.option_pos = $option_pos;
@@ -716,14 +730,29 @@ function generateShootArrayTable(data, struct) {
 		for (let pow=0; pow<arr.length; pow++) {
 			let shooters = arr[pow];
 			tables.sht_arr[foc][pow] = [];
+			let shooterGroups = new Map();
 			let i=0;
 			for (i; i<shooters.length; i++) {
-				let html = shooters[i] == null ? "(带0xffffff偏移的占位符发射器)" : generateOneShooterTable(shooters[i], shtstruct, struct.flags_len, struct.flag_size, foc, pow, i);
+				let shooter = shooters[i];
+				let bindNumber = shooter == null ? "占位符" : getShooterBindNumber(shooter);
+				let group = shooterGroups.get(bindNumber);
+				if (!group) {
+					group = document.createElement("details");
+					group.classList.add("shooter-group");
+					group.open = true;
+					group.dataset.bindNumber = bindNumber;
+					group.innerHTML = "<summary></summary>";
+					shooterGroups.set(bindNumber, group);
+					tables.sht_arr[foc][pow].push(group);
+				}
+				let html = shooter == null ? "(带0xffffff偏移的占位符发射器)" : generateOneShooterTable(shooter, shtstruct, struct.flags_len, struct.flag_size, foc, pow, i);
 				let $wrap = document.createElement("div");
 				$wrap.classList.add("shooter-table");
+				$wrap.dataset.shooterIndex = i;
 				$wrap.innerHTML = html;
 				$wrap.addEventListener("click", toggleCollapsible);
-				tables.sht_arr[foc][pow].push($wrap);
+				group.appendChild($wrap);
+				updateShooterGroupSummary(group);
 			};
 
 			let $btts = document.createElement("div");
@@ -760,11 +789,56 @@ function generateShootArrayTable(data, struct) {
 	};
 };
 
+function getShooterBindNumber(shooter) {
+		return shooter["绑定子机"] || shooter["th19绑定子机"] || shooter.bind || shooter.option || 0;
+};
+
+function updateShooterGroupSummary(group) {
+	let summary = group.querySelector("summary");
+	let count = group.querySelectorAll(":scope > .shooter-table").length;
+	summary.innerText = "子机" + group.dataset.bindNumber + "（" + count + "个发射器）";
+};
+
+function updateShooterGrouping(shooterIndex) {
+	let [table, foc, pow] = activeTable;
+	if (table != "sht_arr" || !tables.active) return;
+
+	let shooter = shtObject.sht_arr[foc][pow][shooterIndex];
+	let $wrap = tables.active.querySelector(".shooter-table[data-shooter-index='" + shooterIndex + "']");
+	if (!shooter || !$wrap) return;
+
+	let groups = Array.from(tables.active.children).filter($child => $child.classList.contains("shooter-group"));
+	let bindNumber = getShooterBindNumber(shooter);
+	let group = groups.find($candidate => $candidate.dataset.bindNumber == bindNumber);
+	if (!group) {
+		group = document.createElement("details");
+		group.classList.add("shooter-group");
+		group.open = true;
+		group.dataset.bindNumber = bindNumber;
+		group.innerHTML = "<summary></summary>";
+		let $buttons = tables.active.lastElementChild;
+		tables.active.insertBefore(group, $buttons);
+		groups.push(group);
+	};
+
+	let oldGroup = $wrap.parentElement;
+	group.appendChild($wrap);
+	let $shooterSummary = $wrap.querySelector(".shooter-summary");
+	if ($shooterSummary) $shooterSummary.innerText = "📌 发射器 " + shooterIndex + " (子机" + bindNumber + ")";
+
+	groups.forEach($candidate => {
+		if ($candidate.children.length == 0) $candidate.remove();
+		else updateShooterGroupSummary($candidate);
+	});
+	if (oldGroup != group && oldGroup.children.length > 0) updateShooterGroupSummary(oldGroup);
+	tables.sht_arr[foc][pow] = Array.from(tables.active.children);
+};
+
 function generateOneShooterTable(shooter, shtstruct, flags_len, flag_size, foc, pow, i) {
-	let bindNumber = shooter["绑定子机"] || shooter["th19绑定子机"] || shooter.bind || shooter.option || 0;
+	let bindNumber = getShooterBindNumber(shooter);
 	let html = "";
 	html += `<details class='shooter-detail'>`;
-	html += `<summary>📌 发射器 ${i} (子机${bindNumber})</summary>`;
+	html += `<summary class='shooter-summary'>📌 发射器 ${i} (子机${bindNumber})</summary>`;
 	html += "<div style='display: flex; gap: 10px; margin-bottom: 10px;'>";
 	html += "<button style='flex: 1;' onclick='removeShooter("+i+", this)'>🗑️ 删除</button>";
 	html += "<button style='flex: 1;' onclick='copyShooter("+i+")'>📋 复制</button>";
@@ -794,10 +868,12 @@ function generateOneShooterTable(shooter, shtstruct, flags_len, flag_size, foc, 
 				`;
 			};
 		} else {
+			let input = `<input value="${shooter[stat]}" data-type="${type}" data-stat="${i}-${stat}">`;
+			if (isShooterBindStat(`${i}-${stat}`)) input += "<button type='button' onclick='confirmShooterBind(this)'>确定</button>";
 			html += `
 			<tr>
 				<td>${stat}</td>
-				<td><input value="${shooter[stat]}" data-type="${type}" data-stat="${i}-${stat}"></td>
+				<td>${input}</td>
 			</tr>
 			`;
 		};

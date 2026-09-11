@@ -296,6 +296,29 @@ input.eval-input {
   margin: 10px;
 }
 
+.shooter-group {
+  display: flow-root;
+  clear: both;
+  margin: 10px 0;
+  padding: 10px;
+  background: var(--element-bg);
+  border: 1px solid var(--border-primary);
+  border-radius: 5px;
+}
+
+.shooter-group > summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 8px;
+  margin: -10px -10px 0;
+  background: var(--element-bg);
+  border-radius: 5px 5px 0 0;
+}
+
+.shooter-group > summary:hover {
+  background: var(--hover-bg);
+}
+
 /* ===== 折叠功能 ===== */
 details.collapsible-table {
   margin: 10px 0;

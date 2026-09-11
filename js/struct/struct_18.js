@@ -42,7 +42,7 @@ window.struct_18 = {
 		"弹幕角度", "float",
 		"弹幕速度", "float",
 		"unknown_sht_int32", "int32",
-		"发射子机", "byte",
+		"绑定子机", "byte",
 		"unknown_sht_byte_0", "byte",
 		"纹理", "byte",
 		"击中纹理", "byte",
