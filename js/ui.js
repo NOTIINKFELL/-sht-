@@ -26,6 +26,7 @@ let undoTransactionChanged = false;
 const MAX_UNDO_STEPS = 50;
 
 let clipboard = [];
+let activeCollisionPreview = null;
 
 let exportType = false;
 
@@ -68,6 +69,12 @@ function getVersionValueForStruct(struct) {
 		if (getStruct(option.value, true) === struct) return option.value;
 	}
 	return "";
+};
+
+function closeActiveCollisionPreview() {
+	if (!activeCollisionPreview) return;
+	activeCollisionPreview.commitPending();
+	activeCollisionPreview.cleanup();
 };
 
 function saveActiveDocument() {
@@ -119,6 +126,7 @@ function renderDocumentTabs() {
 
 function activateDocument(id) {
 	if (id == activeDocumentId) return;
+	closeActiveCollisionPreview();
 	saveActiveDocument();
 	let doc = documents.find(item => item.id == id);
 	if (!doc) return;
@@ -141,11 +149,19 @@ function activateDocument(id) {
 	$export.querySelector(".overwrite-source").checked = false;
 	updateSourceOverwriteControl();
 	renderDocumentTabs();
+	if (activeTable[0] == "sht_arr" && tables.active) {
+		let editor = tables.active.querySelector(".shooter-editor");
+		let selected = editor && editor.dataset.selectedShooter;
+		if (selected != null && Number.isInteger(Number(selected))) {
+			selectShooter(Number(selected), activeTable[1], activeTable[2], editor);
+		}
+	}
 }
 
 function closeDocument(id) {
 	let index = documents.findIndex(doc => doc.id == id);
 	if (index < 0) return;
+	if (activeCollisionPreview && activeCollisionPreview.documentId == id) closeActiveCollisionPreview();
 	let wasActive = id == activeDocumentId;
 	if (wasActive) saveActiveDocument();
 	documents.splice(index, 1);
@@ -175,6 +191,7 @@ function closeDocument(id) {
 }
 
 function startEditorDocument(data, struct, options) {
+	closeActiveCollisionPreview();
 	saveActiveDocument();
 	let fileName = options.fileName || "未命名.sht";
 	let doc = {
@@ -234,6 +251,9 @@ function toolbarAction(action) {
 		case "export":
 			openExport(EXPORT.SHT);
 		break;
+		case "quickSave":
+			quickSaveSht();
+		break;
 		case "exportJson":
 			openExport(EXPORT.JSON);
 		break;
@@ -271,6 +291,7 @@ function editorWindow(options) {
 	let $wnd = getTemplate("editor-window");
 	let $header =  $wnd.querySelector(".window-header");
 	let $content = $wnd.querySelector(".window-content");
+	if (options.className) $wnd.classList.add(options.className);
 
 	if (options.header) {
 		if (activeWindows.indexOf(options.header) > -1) return;
@@ -305,6 +326,7 @@ function editorWindow(options) {
 	});
 
 	if (options.success) options.success();
+	return $wnd;
 };
 
 function cAlert(txt) {
@@ -315,26 +337,29 @@ function cAlert(txt) {
 
 function openImport() {
 	editorWindow({
-		header: "Open",
+		header: "导入",
 		content: $open,
-		width: 343
+		width: 460,
+		className: "import-dialog"
 	});
 };
 
 function openImportJson() {
 	editorWindow({
-		header: "Open",
+		header: "导入",
 		content: $openJson,
-		width: 343
+		width: 460,
+		className: "import-dialog"
 	});
 };
 
 function openImportLS() {
 	populateOpenLSsel();
 	editorWindow({
-		header: "Open",
+		header: "导入",
 		content: $openLS,
-		width: 363
+		width: 460,
+		className: "import-dialog"
 	});
 };
 
@@ -408,6 +433,18 @@ function deleteFromLS(ind) {
 function openExport(type) {
 	if (!shtObject) return error("Can't export a file before loading it");
 	exportType = type;
+	let exportTitle = type == EXPORT.SHT ? "导出 .sht 文件" :
+		type == EXPORT.JSON ? "导出 JSON 文件" : "保存到浏览器缓存";
+	let exportDescription = type == EXPORT.SHT ? "设置文件名和版本后保存编辑结果。" :
+		type == EXPORT.JSON ? "将当前编辑数据导出为 JSON 文件。" : "将当前编辑数据保存到浏览器缓存。";
+	let exportButtonText = type == EXPORT.LS ? "保存到缓存" : "导出文件";
+	let exportHint = type == EXPORT.SHT ? "提示：未勾选覆盖选项时会下载为新文件。" :
+		type == EXPORT.JSON ? "提示：导出的 JSON 包含当前编辑数据。" : "提示：缓存仅保存在当前浏览器中。";
+	$export.querySelector(".dialog-intro strong").innerText = exportTitle;
+	$export.querySelector(".dialog-intro p").innerText = exportDescription;
+	$export.querySelector(".dialog-primary").innerText = exportButtonText;
+	$export.querySelector(".export-hint").innerText = exportHint;
+	$export.querySelector(".version-select").style.display = type == EXPORT.JSON ? "none" : "flex";
 	if (type == EXPORT.SHT) {
 		let doc = getActiveDocument();
 		let versionValue = doc && doc.versionValue;
@@ -422,10 +459,38 @@ function openExport(type) {
 		type == EXPORT.SHT && !(sourceFileHandle && sourceFileHandle.createWritable) ? "block" : "none";
 	$export.querySelector(".overwrite-source").checked = false;
 	editorWindow({
-		header: "Export",
+		header: "导出",
 		content: $export,
-		width: 275
+		width: 460,
+		className: "export-dialog"
 	});
+};
+
+async function quickSaveSht() {
+	if (!shtObject) return error("Can't export a file before loading it");
+	let doc = getActiveDocument();
+	let versionValue = doc && doc.versionValue;
+	if (!Array.from($verOut.options).some(option => option.value == versionValue)) {
+		versionValue = getVersionValueForStruct(currentStruct);
+	}
+	let previous = {
+		exportType: exportType,
+		fileName: $filename.value,
+		version: $verOut.value,
+		overwrite: $export.querySelector(".overwrite-source").checked
+	};
+	$filename.value = doc ? doc.fileName : previous.fileName;
+	if (versionValue) $verOut.value = versionValue;
+	exportType = EXPORT.SHT;
+	$export.querySelector(".overwrite-source").checked = !!(sourceFileHandle && sourceFileHandle.createWritable);
+	try {
+		await exportSht();
+	} finally {
+		exportType = previous.exportType;
+		$filename.value = previous.fileName;
+		$verOut.value = previous.version;
+		$export.querySelector(".overwrite-source").checked = previous.overwrite;
+	}
 };
 
 function exportToLS(arr, name, ver) {
@@ -798,6 +863,11 @@ function expandTree($node) {
 
 function loadTable(type, foc, pow, $btt) {
 	let $active = tables.active;
+	if (activeCollisionPreview && $active && activeCollisionPreview.editor &&
+		$active.contains(activeCollisionPreview.editor)) {
+		activeCollisionPreview.commitPending();
+		activeCollisionPreview.cleanup();
+	}
 	if ($active) $container.removeChild($active);
 
 	let $activebtt = document.querySelector(".tree-active");
@@ -910,7 +980,7 @@ function generateOptionPosTable(data, struct) {
 				let coords = pos[i][j];
 				html += `
 				<tr>
-					<td>${j}</td>
+					<td>${j + 1}</td>
 					<td><input value="${coords.x}" data-type="float" data-stat="${foc}-${i}-${j}-x"></td>
 					<td><input value="${coords.y}" data-type="float" data-stat="${foc}-${i}-${j}-y"></td>
 				</tr>
@@ -972,12 +1042,13 @@ function generateShootArrayTable(data, struct) {
 			$inspector.innerHTML = "<p>点击左侧发射器，在此编辑属性。</p>";
 			let shooterGroups = new Map();
 			let bindNumbers = new Set();
+			bindNumbers.add(0);
 			shooters.forEach(shooter => {
 				if (shooter != null) bindNumbers.add(getShooterBindNumber(shooter));
 			});
 			let positions = shtObject.option_pos && shtObject.option_pos[foc] && shtObject.option_pos[foc][pow];
 			if (Array.isArray(positions)) {
-				for (let bind=0; bind<positions.length; bind++) bindNumbers.add(bind);
+				for (let optionIndex=0; optionIndex<positions.length; optionIndex++) bindNumbers.add(optionIndex + 1);
 			}
 			Array.from(bindNumbers).filter(Number.isFinite).sort((a, b) => a - b).forEach(bindNumber => {
 				shooterGroups.set(bindNumber, createShooterGroup(bindNumber));
@@ -1081,6 +1152,10 @@ function generateShootArrayTable(data, struct) {
 			enableShooterBoxSelection($list, $editor);
 			$editor.appendChild($list);
 			$editor.appendChild($inspector);
+			let $preview = document.createElement("aside");
+			$preview.className = "collision-preview-panel";
+			$preview.innerHTML = "<p class='collision-preview-empty'>选择一个发射器，即可在此查看 XYAB、子机位置并运行发射模拟。</p>";
+			$editor.appendChild($preview);
 			tables.sht_arr[foc][pow] = [$editor];
 		};
 	};
@@ -1114,7 +1189,8 @@ function createShooterGroup(bindNumber) {
 	}
 	let title = document.createElement("div");
 	title.className = "shooter-list-group-title";
-	title.textContent = "子机 " + bindNumber;
+	title.textContent = Number(bindNumber) === 0 ? "子机 0（自机）" :
+		"子机 " + (Number(bindNumber) >= 100 ? Number(bindNumber) - 100 : bindNumber);
 	group.appendChild(title);
 	return group;
 }
@@ -1142,6 +1218,10 @@ function isShooterBindStat(stat) {
 };
 
 function selectShooter(index, foc, pow, editor) {
+	if (activeCollisionPreview) {
+		activeCollisionPreview.commitPending();
+		activeCollisionPreview.cleanup();
+	}
 	let bindingChanged = false;
 	if (editor.dataset.selectedShooter != null) {
 		bindingChanged = commitShooterEdits(Number(editor.dataset.selectedShooter), foc, pow, editor, null, false);
@@ -1223,7 +1303,887 @@ function selectShooter(index, foc, pow, editor) {
 	$actions.appendChild($cut);
 	$actions.appendChild($delete);
 	$inspector.appendChild($actions);
+	let collisionStats = getShooterCollisionStats(currentStruct);
+	if (collisionStats) openShooterCollisionPreview(index, foc, pow, editor, collisionStats);
 	if (bindingChanged) refreshShooterSet(index, foc, pow);
+};
+
+function getShooterCollisionStats(struct) {
+	let names = [];
+	for (let i=0; i<struct.sht_arr.length; i+=2) {
+		if (struct.sht_arr[i+1] != "flags") names.push(struct.sht_arr[i]);
+	}
+	let find = patterns => names.find(name => patterns.some(pattern => pattern.test(name)));
+	let stats = {
+		x: find([/偏移.*x/i, /x.*偏移/i, /offset.*x/i, /x.*offset/i, /^x$/i]),
+		y: find([/偏移.*y/i, /y.*偏移/i, /offset.*y/i, /y.*offset/i, /^y$/i]),
+		a: find([/判定[\s_]*a/i, /hitbox[\s_]*a/i, /^a$/i]),
+		b: find([/判定[\s_]*b/i, /hitbox[\s_]*b/i, /^b$/i]),
+		angle: find([/角度|angle/i])
+	};
+	return stats.x && stats.y && stats.a && stats.b ? stats : null;
+};
+
+function openShooterCollisionPreview(index, foc, pow, editor, stats) {
+	if (activeCollisionPreview) activeCollisionPreview.cleanup();
+	let shooter = shtObject.sht_arr[foc][pow][index];
+	if (!shooter) return;
+	let panel = editor.querySelector(".collision-preview-panel");
+	if (!panel) return;
+	panel.innerHTML = "";
+
+	let root = document.createElement("div");
+	root.className = "collision-preview-root";
+	let instructions = document.createElement("p");
+	instructions.className = "collision-preview-instructions";
+	instructions.textContent = "384 × 448 游戏区域。发射器起点绑定其对应子机，XY 为子机上的相对偏移。点击画面后用方向键移动自机，按住 Shift 低速移动；拖动子机或输入整数坐标编辑阵型。按 Z 可手动发射，自动模拟会按延迟和间隔循环发射。";
+	root.appendChild(instructions);
+
+	let layout = document.createElement("div");
+	layout.className = "collision-preview-layout";
+	let svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+	svg.classList.add("collision-preview-stage");
+	svg.setAttribute("viewBox", "0 0 384 448");
+	svg.setAttribute("preserveAspectRatio", "none");
+	svg.setAttribute("tabindex", "0");
+	svg.setAttribute("role", "img");
+	svg.setAttribute("aria-label", "384 × 448 XYAB 判定与子机位置预览");
+	layout.appendChild(svg);
+
+	let controls = document.createElement("div");
+	controls.className = "collision-preview-controls";
+	let values = document.createElement("div");
+	values.className = "collision-preview-values";
+	let previewInputs = {};
+	let previewFields = [
+		["X", "x"],
+		["Y", "y"],
+		["A 长", "a"],
+		["B 宽", "b"]
+	];
+	if (stats.angle) previewFields.push(["角度（度）", "angle"]);
+	previewFields.forEach(([label, key]) => {
+		let field = document.createElement("label");
+		field.className = "collision-preview-value";
+		let caption = document.createElement("span");
+		caption.textContent = label;
+		let input = document.createElement("input");
+		input.type = "number";
+		input.step = "1";
+		input.value = shooter[stats[key]];
+		if (key == "angle") input.value = Math.round(Number(shooter[stats[key]]) * 180 / Math.PI);
+		input.dataset.previewProperty = stats[key];
+		input.dataset.lastCommitted = input.value;
+		input.addEventListener("input", render);
+		input.addEventListener("change", () => commitPreviewInput(key));
+		input.addEventListener("blur", () => commitPreviewInput(key));
+		field.appendChild(caption);
+		field.appendChild(input);
+		values.appendChild(field);
+		previewInputs[key] = input;
+	});
+	controls.appendChild(values);
+
+	let symmetryTitle = document.createElement("div");
+	symmetryTitle.className = "collision-preview-section-title";
+	symmetryTitle.textContent = "子机编辑模式";
+	controls.appendChild(symmetryTitle);
+	let symmetryControls = document.createElement("div");
+	symmetryControls.className = "collision-preview-symmetry";
+	let symmetryModes = [
+		["single", "单个编辑"],
+		["mirror", "对称编辑"],
+		["four", "四重对称编辑"]
+	];
+	let symmetryButtons = {};
+	symmetryModes.forEach(([mode, label]) => {
+		let button = document.createElement("button");
+		button.type = "button";
+		button.textContent = label;
+		button.addEventListener("click", () => {
+			state.symmetryMode = mode;
+			updateSymmetryButtons();
+		});
+		symmetryButtons[mode] = button;
+		symmetryControls.appendChild(button);
+	});
+	controls.appendChild(symmetryControls);
+
+	let optionTitle = document.createElement("div");
+	optionTitle.className = "collision-preview-section-title";
+	optionTitle.textContent = "选中子机位置（整数）";
+	controls.appendChild(optionTitle);
+	let optionValues = document.createElement("div");
+	optionValues.className = "collision-preview-values collision-preview-option-values";
+	let optionPositionInputs = {};
+	["x", "y"].forEach(coord => {
+		let field = document.createElement("label");
+		field.className = "collision-preview-value";
+		let caption = document.createElement("span");
+		caption.textContent = coord.toUpperCase();
+		let input = document.createElement("input");
+		input.type = "number";
+		input.step = "1";
+		input.addEventListener("change", () => commitOptionInput(coord));
+		input.addEventListener("blur", () => commitOptionInput(coord));
+		field.appendChild(caption);
+		field.appendChild(input);
+		optionValues.appendChild(field);
+		optionPositionInputs[coord] = input;
+	});
+	controls.appendChild(optionValues);
+
+	let applySymmetry = document.createElement("button");
+	applySymmetry.type = "button";
+	applySymmetry.className = "collision-preview-apply-symmetry";
+	applySymmetry.textContent = "一键应用对称布局";
+	applySymmetry.title = "以当前选中的子机为基准，按所选模式生成对应的镜像位置";
+	applySymmetry.addEventListener("click", applySelectedSymmetry);
+	controls.appendChild(applySymmetry);
+
+	let rotateControls = document.createElement("div");
+	rotateControls.className = "collision-preview-rotate";
+	[
+		[-90, "旋转 -90°"],
+		[90, "旋转 +90°"]
+	].forEach(([degrees, label]) => {
+		let button = document.createElement("button");
+		button.type = "button";
+		button.textContent = label;
+		button.addEventListener("click", () => rotateOptionPositions(degrees));
+		rotateControls.appendChild(button);
+	});
+	controls.appendChild(rotateControls);
+
+	let simulationTitle = document.createElement("div");
+	simulationTitle.className = "collision-preview-section-title";
+	simulationTitle.textContent = "发射模拟";
+	controls.appendChild(simulationTitle);
+	let simulationControls = document.createElement("div");
+	simulationControls.className = "collision-preview-simulation-controls";
+	let simulationMode = document.createElement("select");
+	simulationMode.setAttribute("aria-label", "发射模拟范围");
+	[
+		["single", "单个发射器模拟"],
+		["all", "全部发射器模拟"]
+	].forEach(([value, label]) => {
+		let option = document.createElement("option");
+		option.value = value;
+		option.textContent = label;
+		simulationMode.appendChild(option);
+	});
+	let simulationToggle = document.createElement("button");
+	simulationToggle.type = "button";
+	let manualFire = document.createElement("button");
+	manualFire.type = "button";
+	manualFire.textContent = "Z 发射";
+	manualFire.title = "按 Z 发射一轮当前模拟范围内的子弹";
+	let clearBullets = document.createElement("button");
+	clearBullets.type = "button";
+	clearBullets.textContent = "清空子弹";
+	simulationControls.appendChild(simulationMode);
+	simulationControls.appendChild(simulationToggle);
+	simulationControls.appendChild(manualFire);
+	simulationControls.appendChild(clearBullets);
+	controls.appendChild(simulationControls);
+	let simulationStatus = document.createElement("div");
+	simulationStatus.className = "collision-preview-simulation-status";
+	controls.appendChild(simulationStatus);
+
+	let movement = document.createElement("div");
+	movement.className = "collision-preview-movement";
+	controls.appendChild(movement);
+	let optionHint = document.createElement("p");
+	optionHint.className = "collision-preview-option-hint";
+	optionHint.textContent = "拖动绿色子机圆点调整其相对自机的位置。";
+	controls.appendChild(optionHint);
+	layout.appendChild(controls);
+	root.appendChild(layout);
+	panel.appendChild(root);
+
+	let state = {
+		root: root,
+		svg: svg,
+		index: index,
+		foc: foc,
+		pow: pow,
+		editor: editor,
+		stats: stats,
+		documentId: activeDocumentId,
+		player: {x: 192, y: 400},
+		keys: new Set(),
+		symmetryMode: "single",
+		simulationMode: "single",
+		simulationRunning: true,
+		simulationFrame: 0,
+		fireSchedule: [],
+		bullets: [],
+		selectedOption: 0,
+		optionPositions: shtObject.option_pos && shtObject.option_pos[foc] && shtObject.option_pos[foc][pow],
+		lastFrame: 0,
+		frameRequest: 0,
+		drag: null,
+		undoStarted: false
+	};
+	activeCollisionPreview = state;
+
+	function addSvg(name, attributes, parent) {
+		let element = document.createElementNS("http://www.w3.org/2000/svg", name);
+		Object.keys(attributes || {}).forEach(key => element.setAttribute(key, attributes[key]));
+		if (parent) parent.appendChild(element);
+		return element;
+	}
+
+	addSvg("rect", {x: 0, y: 0, width: 384, height: 448, class: "collision-preview-background"}, svg);
+	let grid = addSvg("g", {class: "collision-preview-grid"}, svg);
+	for (let x=0; x<=384; x+=32) {
+		addSvg("line", {x1: x, y1: 0, x2: x, y2: 448, class: x == 192 ? "collision-preview-axis" : "collision-preview-grid-line"}, grid);
+	}
+	for (let y=0; y<=448; y+=32) {
+		addSvg("line", {x1: 0, y1: y, x2: 384, y2: y, class: y == 224 ? "collision-preview-axis" : "collision-preview-grid-line"}, grid);
+	}
+	addSvg("text", {x: 8, y: 17, class: "collision-preview-coordinate-label"}, svg).textContent = "384 × 448";
+	let optionLayer = addSvg("g", {class: "collision-preview-options"}, svg);
+	let shooterLayer = addSvg("g", {class: "collision-preview-shooter"}, svg);
+	let playerLayer = addSvg("g", {class: "collision-preview-player"}, svg);
+	let bulletLayer = addSvg("g", {class: "collision-preview-bullets"}, svg);
+	let intervalStat = findShooterField(/^(发射间隔|interval)$/i, /发射间隔|interval/i);
+	let delayStat = findShooterField(/^(发射延迟|delay)$/i, /发射延迟|delay/i);
+	let interval2Stat = findShooterField(/^发射间隔2$/i, /发射间隔2/i);
+	let delay2Stat = findShooterField(/^发射延迟2$/i, /发射延迟2/i);
+	let speedStat = findShooterField(/^(弹速|速度|speed)$/i, /弹速|速度|speed/i);
+
+	function findShooterField(exactPattern, fallbackPattern) {
+		let names = [];
+		for (let i=0; i<currentStruct.sht_arr.length; i+=2) {
+			if (currentStruct.sht_arr[i+1] != "flags") names.push(currentStruct.sht_arr[i]);
+		}
+		return names.find(name => exactPattern.test(name)) || names.find(name => fallbackPattern.test(name));
+	}
+
+	function getCurrentShooter() {
+		if (state.documentId != activeDocumentId || !shtObject) return null;
+		return shtObject.sht_arr[state.foc][state.pow][state.index] || null;
+	}
+
+	function displayedPreviewValue(key, current) {
+		let value = current[stats[key]];
+			return key == "angle" ? Math.round(Number(value) * 180 / Math.PI) : value;
+	}
+
+	function getPreviewNumber(key) {
+		let inputValue = previewInputs[key].value.trim();
+		let value = Number(inputValue);
+		if (inputValue != "" && Number.isFinite(value)) return value;
+		let current = getCurrentShooter();
+		if (!current) return 0;
+		if (key == "angle") return Number(current[stats.angle]) * 180 / Math.PI || 0;
+		return Number(current[stats[key]]) || 0;
+	}
+
+	function clearChildren(element) {
+		while (element.firstChild) element.removeChild(element.firstChild);
+	}
+
+	function getBoundShipPosition(shooter) {
+		let position = null;
+		let bindNumber = getShooterBindNumber(shooter);
+		let optionIndex = bindNumber >= 100 ? bindNumber - 101 : bindNumber - 1;
+		let positions = shtObject.option_pos && shtObject.option_pos[state.foc] && shtObject.option_pos[state.foc][state.pow];
+		if (Array.isArray(positions) && Number.isInteger(optionIndex) && optionIndex >= 0) position = positions[optionIndex];
+		return {
+			x: state.player.x + (position ? Number(position.x) : 0),
+			y: state.player.y + (position ? Number(position.y) : 0)
+		};
+	}
+
+	function getEmitterPosition(shooter) {
+		let boundShip = getBoundShipPosition(shooter);
+		return {
+			x: boundShip.x + Number(shooter[stats.x] || 0),
+			y: boundShip.y + Number(shooter[stats.y] || 0)
+		};
+	}
+
+	function getSimulatedShooters() {
+		let shooters = shtObject.sht_arr[state.foc][state.pow];
+		if (state.simulationMode == "single") {
+			let current = shooters[state.index];
+			return current ? [{index: state.index, shooter: current}] : [];
+		}
+		return shooters.map((shooter, shooterIndex) => shooter ? {index: shooterIndex, shooter: shooter} : null).filter(Boolean);
+	}
+
+	function getShooterTiming(shooter) {
+		let interval2Value = interval2Stat ? Number(shooter[interval2Stat]) : 0;
+		let delay2Value = delay2Stat ? Number(shooter[delay2Stat]) : 0;
+		let useSecondaryTimer = (Number.isFinite(interval2Value) && interval2Value != 0) ||
+			(Number.isFinite(delay2Value) && delay2Value != 0);
+		let intervalValue = Number(shooter[useSecondaryTimer && interval2Stat ? interval2Stat : intervalStat]);
+		let delayValue = Number(shooter[useSecondaryTimer && delay2Stat ? delay2Stat : delayStat]);
+		return {
+			interval: Math.max(1, Math.floor(intervalValue) || 0),
+			delay: Math.max(0, Math.floor(delayValue) || 0)
+		};
+	}
+
+	function spawnBullet(shooter) {
+		let origin = getEmitterPosition(shooter);
+		let angle = stats.angle ? Number(shooter[stats.angle]) : -Math.PI / 2;
+		let speed = speedStat ? Number(shooter[speedStat]) : 0;
+		if (!Number.isFinite(angle)) angle = -Math.PI / 2;
+		if (!Number.isFinite(speed)) speed = 0;
+		if (state.bullets.length >= 512) state.bullets.shift();
+		state.bullets.push({
+			x: origin.x,
+			y: origin.y,
+			vx: Math.cos(angle) * speed,
+			vy: Math.sin(angle) * speed
+		});
+	}
+
+	function resetFireSchedule() {
+		state.simulationFrame = 0;
+		state.fireSchedule = getSimulatedShooters().map(entry => {
+			let timing = getShooterTiming(entry.shooter);
+			return {shooter: entry.shooter, nextFrame: timing.delay, interval: timing.interval};
+		});
+	}
+
+	function fireVolley() {
+		getSimulatedShooters().forEach(entry => spawnBullet(entry.shooter));
+	}
+
+	function toggleSimulation() {
+		state.simulationRunning = !state.simulationRunning;
+		if (state.simulationRunning) resetFireSchedule();
+		render();
+	}
+
+	function updateSimulation(frames) {
+		if (state.simulationRunning) {
+			state.simulationFrame += frames;
+			state.fireSchedule.forEach(entry => {
+				while (state.simulationFrame >= entry.nextFrame) {
+					spawnBullet(entry.shooter);
+					entry.nextFrame += entry.interval;
+				}
+			});
+		}
+		state.bullets.forEach(bullet => {
+			bullet.x += bullet.vx * frames;
+			bullet.y += bullet.vy * frames;
+		});
+		state.bullets = state.bullets.filter(bullet => bullet.x >= -12 && bullet.x <= 396 && bullet.y >= -12 && bullet.y <= 460);
+	}
+
+	function updateOptionInputs() {
+		let positions = shtObject.option_pos && shtObject.option_pos[state.foc] && shtObject.option_pos[state.foc][state.pow];
+		let position = Array.isArray(positions) && positions[state.selectedOption];
+		["x", "y"].forEach(coord => {
+			optionPositionInputs[coord].value = position ? Math.round(Number(position[coord])) : "";
+			optionPositionInputs[coord].disabled = !position;
+		});
+	}
+
+	function render() {
+		let current = getCurrentShooter();
+		if (!current) return;
+		let x = state.player.x, y = state.player.y;
+		clearChildren(optionLayer);
+		let positions = shtObject.option_pos && shtObject.option_pos[state.foc] && shtObject.option_pos[state.foc][state.pow];
+		state.optionPositions = positions;
+		if (Array.isArray(positions)) {
+			positions.forEach((position, optionIndex) => {
+				addSvg("line", {
+					x1: x, y1: y, x2: x + Number(position.x), y2: y + Number(position.y),
+					class: "collision-preview-option-link"
+				}, optionLayer);
+				let option = addSvg("circle", {
+					cx: x + Number(position.x), cy: y + Number(position.y), r: 7,
+					class: optionIndex == state.selectedOption ? "collision-preview-option selected" : "collision-preview-option",
+					"data-option-index": optionIndex
+				}, optionLayer);
+				addSvg("text", {
+					x: x + Number(position.x), y: y + Number(position.y) + 3,
+					class: "collision-preview-option-label",
+					"pointer-events": "none"
+				}, optionLayer).textContent = String(optionIndex + 1);
+				option.setAttribute("aria-label", "子机 " + (optionIndex + 1));
+			});
+		}
+
+		clearChildren(shooterLayer);
+		let visibleShooters = state.simulationMode == "all" ? getSimulatedShooters() :
+			[{index: state.index, shooter: current}];
+		visibleShooters.forEach(entry => {
+			let emitter = getEmitterPosition(entry.shooter);
+			let boundShip = getBoundShipPosition(entry.shooter);
+			let selected = entry.index == state.index;
+			let width = Math.abs(Number(entry.shooter[stats.b]) || 0);
+			let height = Math.abs(Number(entry.shooter[stats.a]) || 0);
+			let angle = stats.angle ? Number(entry.shooter[stats.angle]) * 180 / Math.PI : -90;
+			if (selected) {
+				emitter.x += getPreviewNumber("x") - Number(current[stats.x] || 0);
+				emitter.y += getPreviewNumber("y") - Number(current[stats.y] || 0);
+				width = Math.abs(getPreviewNumber("b"));
+				height = Math.abs(getPreviewNumber("a"));
+				angle = getPreviewNumber("angle");
+			}
+			if (width > 0 && height > 0) {
+				let rotation = Number.isFinite(angle) ? angle + 90 : 0;
+				addSvg("rect", {
+					x: emitter.x - width / 2,
+					y: emitter.y - height / 2,
+					width: width,
+					height: height,
+					transform: "rotate(" + rotation + " " + emitter.x + " " + emitter.y + ")",
+					class: selected ? "collision-preview-hitbox" : "collision-preview-hitbox collision-preview-hitbox-muted"
+				}, shooterLayer);
+				if (selected && stats.angle) {
+					let radians = rotation * Math.PI / 180;
+					let handleDistance = height / 2 + 12;
+					let handleX = emitter.x + Math.sin(radians) * handleDistance;
+					let handleY = emitter.y - Math.cos(radians) * handleDistance;
+					addSvg("line", {
+						x1: emitter.x, y1: emitter.y, x2: handleX, y2: handleY,
+						class: "collision-preview-rotation-line"
+					}, shooterLayer);
+					addSvg("circle", {
+						cx: handleX, cy: handleY, r: 5,
+						class: "collision-preview-rotation-handle",
+						"data-angle-handle": "true"
+					}, shooterLayer);
+				}
+			}
+			addSvg("line", {
+				x1: boundShip.x, y1: boundShip.y, x2: emitter.x, y2: emitter.y,
+				class: "collision-preview-emitter-link"
+			}, shooterLayer);
+			addSvg("circle", {
+				cx: emitter.x, cy: emitter.y, r: selected ? 4 : 3,
+				class: selected ? "collision-preview-emitter-point" : "collision-preview-emitter-point collision-preview-emitter-muted"
+			}, shooterLayer);
+			if (selected) {
+				addSvg("line", {x1: emitter.x - 6, y1: emitter.y, x2: emitter.x + 6, y2: emitter.y, class: "collision-preview-emitter-cross"}, shooterLayer);
+				addSvg("line", {x1: emitter.x, y1: emitter.y - 6, x2: emitter.x, y2: emitter.y + 6, class: "collision-preview-emitter-cross"}, shooterLayer);
+			}
+		});
+
+		clearChildren(playerLayer);
+		addSvg("circle", {cx: x, cy: y, r: 9, class: "collision-preview-player-ring"}, playerLayer);
+		addSvg("path", {
+			d: "M " + x + " " + (y - 8) + " L " + (x + 6) + " " + (y + 6) + " L " + x + " " + (y + 3) + " L " + (x - 6) + " " + (y + 6) + " Z",
+			class: "collision-preview-player-ship"
+		}, playerLayer);
+		addSvg("text", {
+			x: x + 12, y: y + 4, class: "collision-preview-player-label"
+		}, playerLayer).textContent = "子机0（自机）";
+		clearChildren(bulletLayer);
+		state.bullets.forEach(bullet => addSvg("circle", {
+			cx: bullet.x, cy: bullet.y, r: 2.5, class: "collision-preview-bullet"
+		}, bulletLayer));
+		let speed = getMovementSpeeds();
+		let movementMode = state.keys.has("shift") ? "低速" : "高速";
+		let straightSpeed = state.keys.has("shift") ? speed.slow : speed.fast;
+		let diagonalSpeed = state.keys.has("shift") ? speed.slowDiagonal : speed.fastDiagonal;
+		movement.textContent = "自机 (" + x.toFixed(1) + ", " + y.toFixed(1) + ") · " +
+			movementMode + " " + straightSpeed + " px/帧；斜向分量 " + diagonalSpeed + " px/帧";
+		let selectedPosition = Array.isArray(positions) && positions[state.selectedOption];
+		optionHint.textContent = selectedPosition ?
+			"拖动绿色子机圆点编辑位置；当前选中子机 " + (state.selectedOption + 1) +
+			"（相对坐标 " + Number(selectedPosition.x).toFixed(1) + ", " +
+			Number(selectedPosition.y).toFixed(1) + "）。" :
+			"当前游戏版本没有可编辑的子机位置数据。";
+		applySymmetry.disabled = !Array.isArray(positions) || positions.length < 2 || state.symmetryMode == "single";
+		rotateControls.querySelectorAll("button").forEach(button => button.disabled = !Array.isArray(positions) || !positions.length);
+		simulationToggle.textContent = state.simulationRunning ? "暂停模拟" : "开始模拟";
+		let timing = getShooterTiming(current);
+		simulationStatus.textContent = "模式：" + (state.simulationMode == "single" ? "单个发射器" : "全部发射器") +
+			" · " + (state.simulationRunning ? "循环发射中" : "已暂停") +
+			" · 帧 " + Math.floor(state.simulationFrame) + " · 场上子弹 " + state.bullets.length +
+			" · 选中发射器延迟 " + timing.delay + " 帧 / 间隔 " + timing.interval + " 帧";
+	};
+
+	function getMovementSpeeds() {
+		let main = shtObject || {};
+		return {
+			fast: finiteSpeed(main["高速直向移速"]),
+			slow: finiteSpeed(main["低速直向移速"]),
+			fastDiagonal: finiteSpeed(main["高速斜向移速"]),
+			slowDiagonal: finiteSpeed(main["低速斜向移速"])
+		};
+	}
+
+	function finiteSpeed(value) {
+		let speed = Number(value);
+		return Number.isFinite(speed) && speed >= 0 ? speed : 0;
+	}
+
+	function commitPreviewInput(key) {
+		let current = getCurrentShooter();
+		let editorNow = tables.active && tables.active.querySelector(".shooter-editor");
+		if (!current || !editorNow) return false;
+		let value = previewInputs[key].value.trim();
+		if (value == previewInputs[key].dataset.lastCommitted) {
+			render();
+			return true;
+		}
+		if (value == "" || !Number.isFinite(Number(value))) {
+			error("可视化属性必须是有效数字");
+			previewInputs[key].value = displayedPreviewValue(key, current);
+			previewInputs[key].dataset.lastCommitted = previewInputs[key].value;
+			render();
+			return false;
+		}
+		value = String(Math.round(Number(value)));
+		previewInputs[key].value = value;
+		let statValue = stats[key];
+		let storedValue = key == "angle" ? Number(value) * Math.PI / 180 : Number(value);
+		if (Object.is(Number(current[statValue]), storedValue)) {
+			previewInputs[key].value = key == "angle" ?
+				Math.round(Number(current[statValue]) * 180 / Math.PI) : current[statValue];
+			previewInputs[key].dataset.lastCommitted = previewInputs[key].value;
+			render();
+			return true;
+		}
+		let targetInput = Array.from(editorNow.querySelectorAll(".shooter-inspector input[data-stat]"))
+			.find(input => input.dataset.stat == state.index + "-" + statValue);
+		if (targetInput) {
+			targetInput.value = key == "angle" ? value : storedValue;
+			if (key == "angle") targetInput.dataset.angleMode = "degrees";
+			let result = commitShooterEdits(state.index, state.foc, state.pow, editorNow, targetInput, false);
+			if (result == null) {
+				previewInputs[key].value = displayedPreviewValue(key, current);
+				previewInputs[key].dataset.lastCommitted = previewInputs[key].value;
+				render();
+				return false;
+			}
+		} else {
+			recordUndoSnapshot();
+			current[statValue] = storedValue;
+		}
+		previewInputs[key].value = displayedPreviewValue(key, current);
+		previewInputs[key].dataset.lastCommitted = previewInputs[key].value;
+		render();
+		return true;
+	}
+
+	function commitOptionInput(coord) {
+		let positions = shtObject.option_pos && shtObject.option_pos[state.foc] && shtObject.option_pos[state.foc][state.pow];
+		let position = Array.isArray(positions) && positions[state.selectedOption];
+		let input = optionPositionInputs[coord];
+		if (!position || input.value.trim() == "" || !Number.isFinite(Number(input.value))) {
+			if (position) {
+				error("子机坐标必须是有效整数");
+				updateOptionInputs();
+			}
+			return false;
+		}
+		let value = Math.round(Number(input.value));
+		input.value = value;
+		let x = coord == "x" ? value : Math.round(Number(position.x));
+		let y = coord == "y" ? value : Math.round(Number(position.y));
+		beginUndoTransaction();
+		state.undoStarted = false;
+		setOptionPositions(getSymmetryUpdates(positions.map(item => ({x: item.x, y: item.y})),
+			state.selectedOption, x, y, state.symmetryMode));
+		endUndoTransaction();
+		state.undoStarted = false;
+		updateOptionInputs();
+		render();
+		return true;
+	}
+
+	function commitPending() {
+		let current = getCurrentShooter();
+		if (!current) return false;
+		for (let key of Object.keys(previewInputs)) {
+			let value = previewInputs[key].value.trim();
+			if (value == previewInputs[key].dataset.lastCommitted) continue;
+			if (value == "" || !Number.isFinite(Number(value))) {
+				error("可视化属性必须是有效数字");
+				previewInputs[key].value = displayedPreviewValue(key, current);
+				previewInputs[key].dataset.lastCommitted = previewInputs[key].value;
+				render();
+				return false;
+			}
+			let storedValue = key == "angle" ? Number(value) * Math.PI / 180 : Number(value);
+			if (storedValue != Number(current[stats[key]]) && !commitPreviewInput(key)) return false;
+		}
+		return true;
+	}
+
+	function updateSymmetryButtons() {
+		Object.keys(symmetryButtons).forEach(mode => {
+			symmetryButtons[mode].classList.toggle("active", state.symmetryMode == mode);
+			symmetryButtons[mode].setAttribute("aria-pressed", state.symmetryMode == mode);
+		});
+		applySymmetry.disabled = !Array.isArray(state.optionPositions) ||
+			state.optionPositions.length < 2 || state.symmetryMode == "single";
+	}
+
+	function getSymmetryUpdates(basePositions, selectedIndex, x, y, mode) {
+		let result = new Map([[selectedIndex, {x: x, y: y}]]);
+		if (mode == "single" || !basePositions.length) return result;
+		let targets = mode == "mirror" ? [{x: -x, y: y}] : [
+			{x: -x, y: y},
+			{x: x, y: -y},
+			{x: -x, y: -y}
+		];
+		let uniqueTargets = [];
+		targets.forEach(target => {
+			if (Math.hypot(x - target.x, y - target.y) >= 0.5 &&
+				!uniqueTargets.some(other => Math.hypot(other.x - target.x, other.y - target.y) < 0.5)) {
+				uniqueTargets.push(target);
+			}
+		});
+		let used = new Set([selectedIndex]);
+		uniqueTargets.forEach(target => {
+			let nearestIndex = -1;
+			let nearestDistance = Infinity;
+			basePositions.forEach((position, candidateIndex) => {
+				if (used.has(candidateIndex)) return;
+				let distance = Math.hypot(Number(position.x) - target.x, Number(position.y) - target.y);
+				if (distance < nearestDistance) {
+					nearestDistance = distance;
+					nearestIndex = candidateIndex;
+				}
+			});
+			if (nearestIndex < 0) return;
+			used.add(nearestIndex);
+			result.set(nearestIndex, target);
+		});
+		return result;
+	}
+
+	function setOptionPositions(updates) {
+		let positions = shtObject.option_pos && shtObject.option_pos[state.foc] && shtObject.option_pos[state.foc][state.pow];
+		if (!Array.isArray(positions)) return false;
+		let changed = false;
+		updates.forEach((position, optionIndex) => {
+			let target = positions[optionIndex];
+			if (!target) return;
+			if (!Object.is(Number(target.x), position.x) || !Object.is(Number(target.y), position.y)) {
+				if (!state.undoStarted) {
+					recordUndoSnapshot();
+					state.undoStarted = true;
+				}
+				target.x = position.x;
+				target.y = position.y;
+				changed = true;
+			}
+		});
+		if (!changed) return false;
+		updates.forEach((position, optionIndex) => {
+			["x", "y"].forEach(coord => {
+				let stat = state.foc + "-" + state.pow + "-" + optionIndex + "-" + coord;
+				let input = tables.option_pos && Array.from(tables.option_pos.querySelectorAll("input[data-stat]")).find(item => item.dataset.stat == stat);
+				if (input) input.value = position[coord];
+			});
+		});
+		updateOptionInputs();
+		render();
+		return true;
+	}
+
+	function applySelectedSymmetry() {
+		if (!Array.isArray(state.optionPositions)) return;
+		let anchor = state.optionPositions[state.selectedOption];
+		if (!anchor) return;
+		beginUndoTransaction();
+		state.undoStarted = false;
+		setOptionPositions(getSymmetryUpdates(state.optionPositions.map(position => ({x: position.x, y: position.y})),
+			state.selectedOption, Math.round(Number(anchor.x)), Math.round(Number(anchor.y)), state.symmetryMode));
+		endUndoTransaction();
+		state.undoStarted = false;
+		updateOptionInputs();
+	}
+
+	function rotateOptionPositions(degrees) {
+		if (!Array.isArray(state.optionPositions)) return;
+		beginUndoTransaction();
+		state.undoStarted = false;
+		let radians = degrees * Math.PI / 180;
+		let cosine = Math.cos(radians), sine = Math.sin(radians);
+		let updates = new Map();
+		state.optionPositions.forEach((position, optionIndex) => {
+			updates.set(optionIndex, {
+				x: Math.round(position.x * cosine - position.y * sine),
+				y: Math.round(position.x * sine + position.y * cosine)
+			});
+		});
+		setOptionPositions(updates);
+		endUndoTransaction();
+		state.undoStarted = false;
+		updateOptionInputs();
+	}
+
+	function toStagePoint(event) {
+		let rect = svg.getBoundingClientRect();
+		return {
+			x: (event.clientX - rect.left) * 384 / rect.width,
+			y: (event.clientY - rect.top) * 448 / rect.height
+		};
+	}
+
+	function onPointerDown(event) {
+		let angleHandle = event.target.closest && event.target.closest("[data-angle-handle]");
+		if (angleHandle) {
+			event.preventDefault();
+			state.angleDrag = true;
+			svg.setPointerCapture(event.pointerId);
+			return;
+		}
+		let option = event.target.closest && event.target.closest("[data-option-index]");
+		if (!option || !Array.isArray(state.optionPositions)) return;
+		let optionIndex = Number(option.dataset.optionIndex);
+		if (!Number.isInteger(optionIndex) || !state.optionPositions[optionIndex]) return;
+		event.preventDefault();
+		state.selectedOption = optionIndex;
+		updateOptionInputs();
+		state.drag = {
+			index: optionIndex,
+			positions: state.optionPositions.map(position => ({x: position.x, y: position.y}))
+		};
+		state.undoStarted = false;
+		beginUndoTransaction();
+		svg.setPointerCapture(event.pointerId);
+		render();
+	}
+
+	function onPointerMove(event) {
+		if (state.angleDrag) {
+			let point = toStagePoint(event);
+			let emitterX = state.player.x + getPreviewNumber("x");
+			let emitterY = state.player.y + getPreviewNumber("y");
+			let angle = Math.atan2(point.y - emitterY, point.x - emitterX) * 180 / Math.PI;
+			previewInputs.angle.value = Math.round(angle);
+			render();
+			return;
+		}
+		if (!state.drag) return;
+		let point = toStagePoint(event);
+		let x = Math.round(point.x - state.player.x);
+		let y = Math.round(point.y - state.player.y);
+		let updates = getSymmetryUpdates(state.drag.positions, state.drag.index, x, y, state.symmetryMode);
+		setOptionPositions(updates);
+	}
+
+	function finishPointer() {
+		if (state.angleDrag) {
+			state.angleDrag = false;
+			commitPreviewInput("angle");
+		}
+		if (!state.drag) return;
+		state.drag = null;
+		endUndoTransaction();
+		state.undoStarted = false;
+	}
+
+	function onKeyDown(event) {
+		if (state.documentId != activeDocumentId || !root.isConnected || !root.contains(event.target)) return;
+		if (event.target.closest && event.target.closest("input, textarea, select, [contenteditable='true']")) return;
+		let key = event.key.toLowerCase();
+		if (key == "z") {
+			event.preventDefault();
+			fireVolley();
+			return;
+		}
+		if (["arrowup", "arrowdown", "arrowleft", "arrowright", "shift"].indexOf(key) < 0) return;
+		state.keys.add(key);
+		event.preventDefault();
+	}
+
+	function onKeyUp(event) {
+		state.keys.delete(event.key.toLowerCase());
+		render();
+	}
+
+	function onWindowBlur() {
+		state.keys.clear();
+		render();
+	}
+
+	simulationMode.addEventListener("change", () => {
+		state.simulationMode = simulationMode.value;
+		state.bullets = [];
+		if (state.simulationRunning) resetFireSchedule();
+		render();
+	});
+	simulationToggle.addEventListener("click", toggleSimulation);
+	manualFire.addEventListener("click", fireVolley);
+	clearBullets.addEventListener("click", () => {
+		state.bullets = [];
+		render();
+	});
+
+	function frame(time) {
+		if (!root.isConnected) return;
+		let elapsed = state.lastFrame ? Math.min(time - state.lastFrame, 50) : 0;
+		state.lastFrame = time;
+		let right = state.keys.has("arrowright") ? 1 : 0;
+		let left = state.keys.has("arrowleft") ? 1 : 0;
+		let down = state.keys.has("arrowdown") ? 1 : 0;
+		let up = state.keys.has("arrowup") ? 1 : 0;
+		let dx = right - left, dy = down - up;
+		let frames = elapsed / (1000 / 60);
+		if (dx || dy) {
+			let speed = getMovementSpeeds();
+			let slow = state.keys.has("shift");
+			let diagonal = dx && dy;
+			let move = slow ? (diagonal ? speed.slowDiagonal : speed.slow) :
+				(diagonal ? speed.fastDiagonal : speed.fast);
+			state.player.x = Math.min(376, Math.max(8, state.player.x + dx * move * frames));
+			state.player.y = Math.min(440, Math.max(8, state.player.y + dy * move * frames));
+		}
+		updateSimulation(frames);
+		if (dx || dy || state.keys.has("shift") || state.simulationRunning || state.bullets.length) render();
+		state.frameRequest = requestAnimationFrame(frame);
+	}
+
+	function cleanup() {
+		if (state.drag || state.angleDrag) finishPointer();
+		document.removeEventListener("keydown", onKeyDown);
+		document.removeEventListener("keyup", onKeyUp);
+		window.removeEventListener("blur", onWindowBlur);
+		svg.removeEventListener("pointerdown", onPointerDown);
+		svg.removeEventListener("pointermove", onPointerMove);
+		svg.removeEventListener("pointerup", finishPointer);
+		svg.removeEventListener("pointercancel", finishPointer);
+		cancelAnimationFrame(state.frameRequest);
+		if (activeCollisionPreview == state) activeCollisionPreview = null;
+	}
+
+	state.commitPending = commitPending;
+	state.refreshFromModel = () => {
+		let current = getCurrentShooter();
+		if (!current) return;
+		Object.keys(previewInputs).forEach(key => {
+			previewInputs[key].value = displayedPreviewValue(key, current);
+			previewInputs[key].dataset.lastCommitted = previewInputs[key].value;
+		});
+		updateOptionInputs();
+		state.bullets = [];
+		if (state.simulationRunning) resetFireSchedule();
+		render();
+	};
+	state.cleanup = cleanup;
+	updateOptionInputs();
+	resetFireSchedule();
+	simulationMode.value = state.simulationMode;
+	simulationToggle.textContent = "暂停模拟";
+	updateSymmetryButtons();
+	render();
+	document.addEventListener("keydown", onKeyDown);
+	document.addEventListener("keyup", onKeyUp);
+	window.addEventListener("blur", onWindowBlur);
+	svg.addEventListener("pointerdown", onPointerDown);
+	svg.addEventListener("pointermove", onPointerMove);
+	svg.addEventListener("pointerup", finishPointer);
+	svg.addEventListener("pointercancel", finishPointer);
+	svg.addEventListener("click", () => svg.focus());
+	state.frameRequest = requestAnimationFrame(frame);
 };
 
 function createShooterFieldSection(title, classname, open) {
@@ -1275,6 +2235,10 @@ function getShooterBatchFields(struct) {
 };
 
 function showBatchShooterEditor(indices, foc, pow, editor) {
+	if (activeCollisionPreview) {
+		activeCollisionPreview.commitPending();
+		activeCollisionPreview.cleanup();
+	}
 	let $inspector = editor.querySelector(".shooter-inspector");
 	$inspector.innerHTML = "";
 	let title = document.createElement("h3");
@@ -1381,6 +2345,11 @@ function showBatchShooterEditor(indices, foc, pow, editor) {
 	actions.appendChild(apply);
 	actions.appendChild(cancel);
 	$inspector.appendChild(actions);
+	let selectedIndex = Number(editor.dataset.selectedShooter);
+	let collisionStats = getShooterCollisionStats(currentStruct);
+	if (collisionStats && Number.isInteger(selectedIndex)) {
+		openShooterCollisionPreview(selectedIndex, foc, pow, editor, collisionStats);
+	}
 };
 
 function normalizeShooterBatchValue(value, type) {
@@ -1670,6 +2639,10 @@ function commitShooterEdits(index, foc, pow, editor, onlyInput, refreshBinding) 
 
 function refreshShooterSet(selectedIndex, foc, pow, nextSelectedIndices) {
 	let previousEditor = tables.active && tables.active.querySelector(".shooter-editor");
+	if (activeCollisionPreview && activeCollisionPreview.editor == previousEditor) {
+		activeCollisionPreview.commitPending();
+		activeCollisionPreview.cleanup();
+	}
 	let selectedIndices = previousEditor ? selectedShooterIndices(previousEditor) : [];
 	generateShootArrayTable(shtObject, currentStruct);
 	reloadCurrentEditor();
@@ -1880,8 +2853,16 @@ function updateShooterSelection(index, event, editor) {
 function handleShooterKeyboardShortcuts(event) {
 	let target = event.target;
 	let key = event.key.toLowerCase();
+	let previewTarget = target && target.closest && target.closest(".collision-preview-root");
+	let blockedWindow = target && target.closest && target.closest(".editor-window") && !previewTarget;
+	if ((event.ctrlKey || event.metaKey) && !event.altKey && key == "s") {
+		event.preventDefault();
+		quickSaveSht();
+		return;
+	}
 	if ((event.ctrlKey || event.metaKey) && !event.altKey && (key == "z" || key == "y") &&
-		!(target && target.closest && target.closest(".eval-input, .filename, .editor-window"))) {
+		!(target && target.closest && target.closest(".eval-input, .filename")) && !blockedWindow) {
+		if (previewTarget && activeCollisionPreview && !activeCollisionPreview.commitPending()) return;
 		let changed = key == "y" || event.shiftKey ? redoEditorChange() : undoEditorChange();
 		if (changed) {
 			event.preventDefault();
@@ -2027,6 +3008,9 @@ function refreshEditorAfterHistoryChange() {
 				selectShooter(selectedShooter, foc, pow, editor);
 			}
 		}
+	}
+	if (activeCollisionPreview && activeCollisionPreview.documentId == activeDocumentId) {
+		activeCollisionPreview.refreshFromModel();
 	}
 	let doc = getActiveDocument();
 	if (doc) {

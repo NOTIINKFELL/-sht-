@@ -14,16 +14,32 @@ function updateSourceOverwriteControl() {
 function openFile(files, handle) {
 	if (!files || !files.length) return;
 	let sht = files[0];
+	let fileInput = document.querySelector(".open .file-input");
+	if (fileInput) fileInput.value = "";
 	pendingSourceFileHandle = handle || null;
 	pendingFileName = sht.name;
-	document.querySelector(".selected-file").innerText = sht.name;
-	reader = new FileReader();
-	reader.onload = f => {
+	file = null;
+	let selectedFile = document.querySelector(".open .selected-file");
+	let loadButton = document.querySelector(".open .import-load");
+	selectedFile.innerText = sht.name + "（读取中…）";
+	loadButton.disabled = true;
+	let fileReader = new FileReader();
+	reader = fileReader;
+	fileReader.onload = f => {
+		if (reader != fileReader) return;
 		file = f;
 		let version = detectShtVersion(new Uint8Array(f.target.result));
 		if (version) $ver.value = version;
+		selectedFile.innerText = sht.name;
+		loadButton.disabled = false;
 	};
-	reader.readAsArrayBuffer(sht);
+	fileReader.onerror = () => {
+		if (reader != fileReader) return;
+		file = null;
+		selectedFile.innerText = "读取文件失败";
+		error(fileReader.error ? fileReader.error.toString() : "无法读取文件");
+	};
+	fileReader.readAsArrayBuffer(sht);
 };
 
 function detectShtVersion(arr) {
@@ -126,37 +142,29 @@ function getShtTypeSize(type) {
 	}
 }
 
-async function chooseShtFile() {
-	if (!window.showOpenFilePicker) {
-		document.querySelector(".open .file-input").click();
-		return;
-	}
-
-	try {
-		let handles = await window.showOpenFilePicker({
-			multiple: false,
-			types: [{
-				description: "SHT files",
-				accept: {"application/octet-stream": [".sht"]}
-			}]
-		});
-		let handle = handles[0];
-		openFile([await handle.getFile()], handle);
-	} catch(e) {
-		if (e.name == "AbortError") return;
-		error(e.toString());
-		throw e;
-	}
-}
-
 function openFileJson(files) {
 	if (!files || !files.length) return;
+	let fileInput = document.querySelector(".json-file-input");
+	if (fileInput) fileInput.value = "";
 	pendingSourceFileHandle = null;
 	let json = files[0];
 	pendingFileName = json.name;
-	reader = new FileReader();
-	reader.onload = f => file = f;
-	reader.readAsBinaryString(json);
+	file = null;
+	let loadButton = document.querySelector(".json-import-load");
+	loadButton.disabled = true;
+	let fileReader = new FileReader();
+	reader = fileReader;
+	fileReader.onload = f => {
+		if (reader != fileReader) return;
+		file = f;
+		loadButton.disabled = false;
+	};
+	fileReader.onerror = () => {
+		if (reader != fileReader) return;
+		file = null;
+		error(fileReader.error ? fileReader.error.toString() : "无法读取文件");
+	};
+	fileReader.readAsBinaryString(json);
 }
 
 function readFile() {
@@ -178,6 +186,7 @@ function readFile() {
 		pendingFileName = "";
 		file = null;
 		reader = null;
+		document.querySelector(".open .import-load").disabled = true;
 	} catch(e) {
 		log("An error has occurred while parsing the .sht file. Have you selected the right .sht version?");
 		error(e.toString());
@@ -209,6 +218,7 @@ function readFileJson() {
 		pendingFileName = "";
 		file = null;
 		reader = null;
+		document.querySelector(".json-import-load").disabled = true;
 	} catch(e) {
 		log("An error has occurred while loading the .json file. Have you selected the right game version?");
 		error(e.toString());

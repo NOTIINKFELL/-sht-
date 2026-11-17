@@ -47,6 +47,7 @@
                 <div class="dropdown-entry" data-toolbar="exportLS">保存 (缓存)</div>
             </div>
         </div>
+        <button type="button" class="toolbar-quick-save" data-toolbar="quickSave" title="快速保存 (Ctrl+S)">快速保存</button>
         <div class="toolbar-entry">
             <div class="toolbar-entry-text">工具</div>
             <div class="toolbar-dropdown">
@@ -117,13 +118,18 @@
                 </tr>
             </table>
         </div>
-        <div class="open">
-            <input type="file" class="file-input" accept=".sht" onchange="openFile(this.files)">
-            <button onclick="chooseShtFile()">选择 .sht 文件</button>
-            <span class="selected-file">未选择文件</span>
-            <button onclick="readFile()">加载</button>
-            <div class="version-select">
-                <select class="sht-ver">
+        <div class="open dialog-form">
+            <div class="dialog-intro">
+                <strong>导入 .sht 文件</strong>
+                <p>选择本地文件后加载，也可以将 .sht 文件拖入编辑器。</p>
+            </div>
+            <div class="file-picker-row">
+                <label class="native-file-picker">浏览文件<input type="file" class="file-input" accept=".sht" aria-label="浏览 .sht 文件" onchange="openFile(this.files)"></label>
+                <span class="selected-file" role="status" aria-live="polite">未选择文件</span>
+            </div>
+            <div class="version-select dialog-field">
+                <label for="sht-version-in">SHT 版本</label>
+                <select class="sht-ver" id="sht-version-in">
                     <!-- NEWHOU -->
                     <option value="19">v19 (兽王园)</option>
                     <option value="18.5">v18.5 (黑市)</option>
@@ -145,30 +151,55 @@
                     <option value="08">v08 (永夜抄)</option>
                     <option value="07">v07 (妖妖梦)</option>
                 </select>
-                选择 .sht 版本
             </div>
+            <button type="button" class="dialog-primary import-load" onclick="readFile()" disabled>加载文件</button>
+            <small class="dialog-hint">提示：选择文件后点击“加载文件”；无法自动识别版本时，可手动选择版本。</small>
         </div>
-        <div class="export">
-            <input placeholder="文件名" class="filename"> <button onclick="exportSht()">保存</button>
+        <div class="export dialog-form">
+            <div class="dialog-intro">
+                <strong>导出 .sht 文件</strong>
+                <p>设置文件名和版本后保存编辑结果。</p>
+            </div>
+            <label class="dialog-field" for="export-filename">
+                <span>文件名</span>
+                <input id="export-filename" placeholder="文件名" class="filename" aria-label="导出文件名">
+            </label>
             <label class="overwrite-source-option"><input type="checkbox" class="overwrite-source" disabled> 直接覆盖导入的 .sht 源文件（无确认）</label>
             <small class="overwrite-source-note">需要浏览器支持文件写入权限；否则请使用另存为。</small>
-            <div class="version-select">
-                <select class="sht-ver-out"></select>
-                选择 .sht 版本
+            <div class="version-select dialog-field">
+                <label for="sht-version-out">SHT 版本</label>
+                <select class="sht-ver-out" id="sht-version-out"></select>
             </div>
+            <button type="button" class="dialog-primary" onclick="exportSht()">导出文件</button>
+            <small class="dialog-hint export-hint"></small>
         </div>
-        <div class="openLS">
-            <b>从之前保存的文件中选择</b>
-            <select class="openLS-sel"></select> <button onclick="loadLS()">加载</button> <button onclick="deleteFromLS()">删除</button>
-        </div>
-        <div class="openJson">
-            <b>注意: </b>JSON导入没有验证。
-            <input type="file" class="file-input" accept=".json" onchange="openFileJson(this.files)">
-            <button onclick="readFileJson()">加载</button>
-            <div class="version-select">
-                <select class="json-ver-in"></select>
-                选择游戏版本
+        <div class="openLS dialog-form">
+            <div class="dialog-intro">
+                <strong>从本地缓存导入</strong>
+                <p>选择之前保存到浏览器中的文件。</p>
             </div>
+            <label class="dialog-field">
+                <span>缓存文件</span>
+                <select class="openLS-sel"></select>
+            </label>
+            <div class="dialog-actions-row">
+                <button type="button" class="dialog-primary" onclick="loadLS()">加载缓存文件</button>
+                <button type="button" class="dialog-secondary" onclick="deleteFromLS()">删除</button>
+            </div>
+            <small class="dialog-hint">提示：缓存文件仅保存在当前浏览器中。</small>
+        </div>
+        <div class="openJson dialog-form">
+            <div class="dialog-intro">
+                <strong>导入 JSON 文件</strong>
+                <p>JSON 导入不会验证文件内容，请确认数据格式正确。</p>
+            </div>
+            <input type="file" class="file-input json-file-input" accept=".json" aria-label="选择 JSON 文件" onchange="openFileJson(this.files)">
+            <div class="version-select dialog-field">
+                <label for="json-version-in">游戏版本</label>
+                <select class="json-ver-in" id="json-version-in"></select>
+            </div>
+            <button type="button" class="dialog-primary json-import-load" onclick="readFileJson()" disabled>加载 JSON</button>
+            <small class="dialog-hint">提示：JSON 文件不会进行格式验证，请确认文件内容有效。</small>
         </div>
     </div>
 
