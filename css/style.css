@@ -371,11 +371,22 @@ input.eval-input {
 }
 .shooter-list-group {
   margin-bottom: 12px;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 4px;
 }
 .shooter-list-group-title {
   margin-bottom: 5px;
   color: #BBBBBB;
   font-weight: bold;
+  min-height: 20px;
+}
+.shooter-editor.shooter-dragging .shooter-list-group[data-bind-number] {
+  border-color: var(--border-secondary);
+}
+.shooter-editor.shooter-dragging .shooter-list-group[data-bind-number].drag-target {
+  border-color: var(--link-color);
+  background: var(--hover-bg);
 }
 .shooter-select {
   display: block;
@@ -383,10 +394,18 @@ input.eval-input {
   margin: 3px 0;
   padding: 7px;
   text-align: left;
+  cursor: grab;
+}
+.shooter-select:active {
+  cursor: grabbing;
 }
 .shooter-select.active {
   background: var(--hover-bg);
   border-color: var(--link-color);
+}
+.shooter-select.selected {
+  outline: 1px solid var(--link-color);
+  outline-offset: -2px;
 }
 .shooter-list-actions {
   display: flex;
