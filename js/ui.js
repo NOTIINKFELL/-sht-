@@ -645,7 +645,7 @@ function initUI() {
 		draggedWindow = null;
 	});
 
-	document.addEventListener("keydown", handleShooterClipboardShortcuts);
+	document.addEventListener("keydown", handleShooterKeyboardShortcuts);
 
 	$evalInput.addEventListener("keydown", e => {
 		if (e.which == 13) doEval();
@@ -1432,11 +1432,22 @@ function updateShooterSelection(index, event, editor) {
 	let selected = selectedShooterIndices(editor);
 	let anchor = Number(editor.dataset.selectionAnchor);
 	if (event.shiftKey) {
-		if (!Number.isInteger(anchor)) anchor = index;
-		let start = Math.min(anchor, index);
-		let end = Math.max(anchor, index);
-		let range = [];
-		for (let i=start; i<=end; i++) range.push(i);
+		let $button = editor.querySelector(".shooter-select[data-shooter-index='" + index + "']");
+		let $anchor = Number.isInteger(anchor) ?
+			editor.querySelector(".shooter-select[data-shooter-index='" + anchor + "']") : null;
+		let $group = $button && $button.closest(".shooter-list-group");
+		let range = [index];
+		if ($group && $anchor && !$anchor.disabled && $anchor.closest(".shooter-list-group") == $group) {
+			let groupButtons = Array.from($group.querySelectorAll(".shooter-select")).filter(button => !button.disabled);
+			let start = groupButtons.indexOf($anchor);
+			let end = groupButtons.indexOf($button);
+			if (start > -1 && end > -1) {
+				range = groupButtons.slice(Math.min(start, end), Math.max(start, end) + 1)
+					.map(button => Number(button.dataset.shooterIndex));
+			}
+		} else {
+			anchor = index;
+		}
 		selected = event.ctrlKey || event.metaKey ? Array.from(new Set(selected.concat(range))) : range;
 	} else if (event.ctrlKey || event.metaKey) {
 		selected = selected.includes(index) ? selected.filter(item => item != index) : selected.concat(index);
@@ -1449,11 +1460,18 @@ function updateShooterSelection(index, event, editor) {
 	setShooterSelection(editor, selected);
 };
 
-function handleShooterClipboardShortcuts(event) {
-	if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+function handleShooterKeyboardShortcuts(event) {
 	let target = event.target;
 	if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']")) return;
 	if (activeTable[0] != "sht_arr") return;
+	if (event.key == "Delete") {
+		let editor = tables.active && tables.active.querySelector(".shooter-editor");
+		if (!editor || !selectedShooterIndices(editor).length) return;
+		event.preventDefault();
+		deleteSelectedShooters(editor);
+		return;
+	}
+	if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
 	let key = event.key.toLowerCase();
 	if (key == "c") {
 		let editor = tables.active && tables.active.querySelector(".shooter-editor");
@@ -1466,6 +1484,19 @@ function handleShooterClipboardShortcuts(event) {
 		event.preventDefault();
 		pasteShooter();
 	}
+};
+
+function deleteSelectedShooters(editor) {
+	let indices = selectedShooterIndices(editor);
+	if (!indices.length) return;
+	let [, foc, pow] = activeTable;
+	let arr = shtObject.sht_arr[foc][pow];
+	if (editor.dataset.selectedShooter != null) {
+		let result = commitShooterEdits(Number(editor.dataset.selectedShooter), foc, pow, editor, null, false);
+		if (result == null) return;
+	}
+	indices.sort((a, b) => b - a).forEach(index => arr.splice(index, 1));
+	refreshShooterSet(null, foc, pow, []);
 };
 
 function changeShooterBinding(indices, bindNumber, foc, pow, editor) {

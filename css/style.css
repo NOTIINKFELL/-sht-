@@ -290,18 +290,19 @@ input.eval-input {
 .file-tree {
   width: 300px;
   height: 100%;
-  border-right: 1px solid #555555;
-  padding: 20px 0 0 20px;
+  border-right: 1px solid var(--border-secondary);
+  padding: 14px 12px;
   box-sizing: border-box;
-  font-family: monospace;
-  font-size: 15px;
-  color: #BBBBBB;
+  font-size: 14px;
+  color: var(--text-primary);
   float: left;
+  overflow: auto;
 }
 
 .filetree-entry {
+  margin: 3px 0 8px;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
 }
 
 .filetree-entry:not(.expandable):hover,
@@ -318,9 +319,45 @@ input.eval-input {
 }
 
 .filetree-entry.expandable:not(.hidden) .expandable-text::before {
-  content: "-";
+  content: "−";
 }
 
+.filetree-entry.expandable[data-tree^="sht_arr_"] {
+  overflow: hidden;
+  margin: 8px 0;
+  padding-bottom: 5px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+}
+.filetree-entry[data-tree="sht_arr_unfocused"] {
+  border-left: 3px solid #d59b52;
+}
+.filetree-entry[data-tree="sht_arr_focused"] {
+  border-left: 3px solid #6aa9cf;
+}
+.filetree-entry.expandable[data-tree^="sht_arr_"]:hover {
+  border-color: var(--border-primary);
+}
+.expandable-text {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 10px;
+  font-weight: 600;
+  user-select: none;
+}
+.expandable-text::before {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 5px;
+  color: var(--link-color);
+  line-height: 1;
+}
 .expandable-text:hover {
   color: #FFFFFF;
 }
@@ -330,9 +367,46 @@ input.eval-input {
 }
 
 .expandable-option::before {
-  content: "- \00B7";
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 0 7px;
+  border-right: 1px solid var(--border-primary);
+  border-bottom: 1px solid var(--border-primary);
+  transform: rotate(-45deg);
 }
 
+.expandable-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  margin: 2px 6px;
+  padding: 0 5px 0 2px;
+  border-radius: 5px;
+  color: #BBBBBB;
+  transition: background 0.15s, color 0.15s;
+}
+.expandable-option:hover {
+  background: var(--element-bg);
+  color: var(--text-primary);
+}
+.expandable-option span {
+  padding: 4px 5px;
+  border-radius: 4px;
+}
+.expandable-option span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.expandable-option span:not(:first-child) {
+  color: #AAAAAA;
+  font-size: 12px;
+}
+.expandable-option span:not(:first-child):hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
 .expandable-option span:hover,
 .expandable-option span.tree-active {
   color: #FFFFFF;
