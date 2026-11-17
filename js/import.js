@@ -171,7 +171,8 @@ function readFile() {
 		let data = readSht(array, struct);
 		generateEditorTable(data, struct, {
 			fileName: pendingFileName,
-			sourceFileHandle: pendingSourceFileHandle
+			sourceFileHandle: pendingSourceFileHandle,
+			versionValue: $ver.value
 		});
 		pendingSourceFileHandle = null;
 		pendingFileName = "";
@@ -201,7 +202,10 @@ function readFileJson() {
 	log("sht version "+$verInJson.value);
 
 	try {
-		generateEditorTable(data, struct, {fileName: pendingFileName});
+		generateEditorTable(data, struct, {
+			fileName: pendingFileName,
+			versionValue: $verInJson.value
+		});
 		pendingFileName = "";
 		file = null;
 		reader = null;

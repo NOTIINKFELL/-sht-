@@ -17,6 +17,13 @@ let documents = [];
 let activeDocumentId = null;
 let nextDocumentId = 1;
 let suppressLogs = false;
+let undoStack = [];
+let redoStack = [];
+let undoTransactionDepth = 0;
+let undoTransactionBefore = null;
+let undoTransactionChanged = false;
+
+const MAX_UNDO_STEPS = 50;
 
 let clipboard = [];
 
@@ -55,6 +62,14 @@ function getActiveDocument() {
 	return documents.find(doc => doc.id == activeDocumentId) || null;
 }
 
+function getVersionValueForStruct(struct) {
+	let options = Array.from($verOut.options);
+	for (let option of options) {
+		if (getStruct(option.value, true) === struct) return option.value;
+	}
+	return "";
+};
+
 function saveActiveDocument() {
 	let doc = getActiveDocument();
 	if (!doc) return;
@@ -62,6 +77,8 @@ function saveActiveDocument() {
 	doc.currentStruct = currentStruct;
 	doc.tables = tables;
 	doc.activeTable = activeTable;
+	doc.undoStack = undoStack;
+	doc.redoStack = redoStack;
 	doc.sourceFileHandle = sourceFileHandle;
 	doc.fileName = $filename.value || doc.fileName;
 	doc.fileInfo = $fileinfo.innerText;
@@ -111,6 +128,8 @@ function activateDocument(id) {
 	currentStruct = doc.currentStruct;
 	tables = doc.tables;
 	activeTable = doc.activeTable || [false];
+	undoStack = doc.undoStack || [];
+	redoStack = doc.redoStack || [];
 	sourceFileHandle = doc.sourceFileHandle || null;
 	$filename.value = doc.fileName;
 	$fileinfo.innerText = doc.fileInfo;
@@ -142,6 +161,8 @@ function closeDocument(id) {
 	currentStruct = null;
 	tables = createTablesState();
 	activeTable = [false];
+	undoStack = [];
+	redoStack = [];
 	sourceFileHandle = null;
 	$filename.value = "";
 	$export.querySelector(".overwrite-source").checked = false;
@@ -162,8 +183,11 @@ function startEditorDocument(data, struct, options) {
 		fileInfo: fileName + " (v" + struct.ver + ")",
 		shtObject: data,
 		currentStruct: struct,
+		versionValue: options.versionValue || getVersionValueForStruct(struct),
 		tables: createTablesState(),
 		activeTable: [false],
+		undoStack: [],
+		redoStack: [],
 		sourceFileHandle: options.sourceFileHandle || null,
 		fileTree: document.createElement("div"),
 		tableContent: document.createElement("div")
@@ -174,6 +198,8 @@ function startEditorDocument(data, struct, options) {
 	currentStruct = struct;
 	tables = doc.tables;
 	activeTable = doc.activeTable;
+	undoStack = doc.undoStack;
+	redoStack = doc.redoStack;
 	sourceFileHandle = doc.sourceFileHandle;
 	$filename.value = fileName;
 	$filetree.innerHTML = "";
@@ -238,6 +264,7 @@ function toolbarAction(action) {
 let activeWindows = [];
 let draggedWindow = null;
 let draggedShooters = null;
+let shooterBoxSelection = null;
 let dragOrigin = {left: 0, top: 0};
 
 function editorWindow(options) {
@@ -330,7 +357,7 @@ function loadLS() {
 	if (ind == -2) {
 		const struct = window.struct_15;
 		const data = readSht(window._testshot, struct);
-		generateEditorTable(data, struct, {fileName: "LoLK Sanae.sht"});
+		generateEditorTable(data, struct, {fileName: "LoLK Sanae.sht", versionValue: "15"});
 	} else {
 		let list = localStorage.getItem("___fileIndex");
 		list = JSON.parse(list);
@@ -345,7 +372,7 @@ function loadLS() {
 			let arr = readLSfile(file);
 			let struct = getStruct(ver, true);
 			let data = readSht(arr, struct);
-			generateEditorTable(data, struct, {fileName: name});
+			generateEditorTable(data, struct, {fileName: name, versionValue: String(ver)});
 		} catch(e) {
 			deleteFromLS(ind);
 			populateOpenLSsel();
@@ -381,6 +408,14 @@ function deleteFromLS(ind) {
 function openExport(type) {
 	if (!shtObject) return error("Can't export a file before loading it");
 	exportType = type;
+	if (type == EXPORT.SHT) {
+		let doc = getActiveDocument();
+		let versionValue = doc && doc.versionValue;
+		if (!Array.from($verOut.options).some(option => option.value == versionValue)) {
+			versionValue = getVersionValueForStruct(currentStruct);
+		}
+		if (versionValue) $verOut.value = versionValue;
+	}
 	let overwriteOption = $export.querySelector(".overwrite-source-option");
 	overwriteOption.style.display = type == EXPORT.SHT ? "block" : "none";
 	$export.querySelector(".overwrite-source-note").style.display =
@@ -560,24 +595,32 @@ function tableInput($targ, val, type, stat) {
 
 function updateData(val, stat) {
 	let table = activeTable[0], foc = activeTable[1], pow = activeTable[2];
+	let target, property;
 	if (table == "sht_arr") {
-		val = Number(val);
 		if (stat != "power") {
 			let [i, rstat, flagno] = stat.split("-");
-			if (rstat != "flag") shtObject[table][foc][pow][i][rstat] = val;
-			else shtObject[table][foc][pow][i].flags[flagno] = val;
+			target = rstat != "flag" ? shtObject[table][foc][pow][i] : shtObject[table][foc][pow][i].flags;
+			property = rstat != "flag" ? rstat : flagno;
 		} else {
-			shtObject[table][foc][pow].power = val;
+			target = shtObject[table][foc][pow];
+			property = "power";
 		};
 	} else if (table == "main") {
-		shtObject[stat] = Number(val);
+		target = shtObject;
+		property = stat;
 	} else if (table == "option_pos") {
 		let [foc, pow, i, coord] = stat.split("-");
-		shtObject[table][foc][pow][i][coord] = Number(val);
+		target = shtObject[table][foc][pow][i];
+		property = coord;
 	} else if (table == "spellname_arr") {
-		let num = stat.split("-")[1];
-		shtObject[table][num] = val;
+		target = shtObject.spellname_arr;
+		property = Number(stat.split("-")[1]);
 	}
+	if (!target) return;
+	let value = table == "spellname_arr" ? val : Number(val);
+	if (Object.is(target[property], value)) return;
+	recordUndoSnapshot();
+	target[property] = value;
 };
 
 function initUI() {
@@ -690,10 +733,13 @@ function hideTip() {
 function generateFileTree(regen) {
 	let html = "";
 
-	html += "<div data-tree='main' onclick='loadTable(\"main\", false, false, this)' class='filetree-entry'>自机属性</div>";
-	if (currentStruct.option_pos_len) html += "<div data-tree='option_pos' onclick='loadTable(\"option_pos\", false, false, this)' class='filetree-entry'>子机位置</div>";
-	if (currentStruct.spellname_arr_len) html += "<div data-tree='option_pos' onclick='loadTable(\"spellname_arr\", false, false, this)' class='filetree-entry'>符卡名字</div>";
-	html += "<div data-tree='sht_off' onclick='loadTable(\"sht_off\", false, false, this)' class='filetree-entry'>sht_off</div>";
+	html += "<div data-tree='main' class='filetree-entry expandable hidden filetree-main-group'>";
+		html += "<div onclick='expandTree(this)' class='expandable-text'>自机属性</div>";
+		html += "<div class='expandable-option'><span data-tree='main-table' onclick='loadTable(\"main\", false, false, this)'>属性表</span></div>";
+	html += "</div>";
+	if (currentStruct.option_pos_len) html += "<div data-tree='option_pos' onclick='loadTable(\"option_pos\", false, false, this)' class='filetree-entry filetree-table-card filetree-option-position'><div class='expandable-text'>子机位置</div></div>";
+	if (currentStruct.spellname_arr_len) html += "<div data-tree='spellname_arr' onclick='loadTable(\"spellname_arr\", false, false, this)' class='filetree-entry'>符卡名字</div>";
+	html += "<div data-tree='sht_off' onclick='loadTable(\"sht_off\", false, false, this)' class='filetree-entry filetree-table-card filetree-shot-offset'><div class='expandable-text'>sht_off</div></div>";
 
 	if (currentStruct.f_uf_shooter_split) {
 		html += "<div data-tree='sht_arr_unfocused' class='filetree-entry expandable hidden'>";
@@ -781,12 +827,14 @@ function generateEditorTable(data, struct, options) {
 	startEditorDocument(data, struct, options || {});
 	log("starting table generation");
 	console.log(data);
+	generateEditorTables(data, struct, false);
+};
+
+function generateEditorTables(data, struct, preserveTree) {
 	log("generate main table");
 
-	let html = "";
-	html += "<details class='collapsible-table' open><summary>主属性表</summary>";
-	html += "<table>";
-	html += "<tr><th>属性</th><th>数值</th></tr>";
+	let editableRows = "";
+	let unusedRows = "";
 	for (let i=0; i<struct.main.length; i+=2) {
 		let stat = struct.main[i];
 		let type = struct.main[i+1];
@@ -799,26 +847,34 @@ function generateEditorTable(data, struct, options) {
 		} else if (type == "spellname_arr") {
 			generateSpellNameArrayTable(data, struct);
 		} else {
-			html += `
+			let row = `
 			<tr>
 				<td>${stat}</td>
 				<td><input value="${data[stat]}" data-type="${type}" data-stat="${stat}"></td>
 			</tr>`;
+			if (/未使用|unused/i.test(stat) || /unused/i.test(type)) unusedRows += row;
+			else editableRows += row;
 		};
 	};
-	html += `
+	editableRows += `
 	<tr>
 		<td data-type="the amount of shootersets there actually are - the rest of the offset array will be filled with 0s">real_sht_off_cnt</td>
 		<td><input value="${data.real_sht_off_cnt}" data-type="int32" data-stat="real_sht_off_cnt"></td>
 	</tr>`
-	html += "</table>";
+	let html = "<details class='collapsible-table main-attribute-table' open><summary>主属性表</summary>";
+	html += "<details class='main-attribute-section main-editable-section' open><summary>可编辑属性</summary>";
+	html += "<table><thead><tr><th>属性</th><th>数值</th></tr></thead><tbody>" + editableRows + "</tbody></table></details>";
+	if (unusedRows) {
+		html += "<details class='main-attribute-section main-unused-section'><summary>未使用属性</summary>";
+		html += "<table><thead><tr><th>属性</th><th>数值</th></tr></thead><tbody>" + unusedRows + "</tbody></table></details>";
+	}
 	html += "</details>";
 
 	let $main = document.createElement("div");
 	$main.innerHTML = html;
 	tables.main = $main;
 
-	generateFileTree();
+	generateFileTree(preserveTree);
 };
 
 function generateSpellNameArrayTable(data, struct) {
@@ -844,9 +900,10 @@ function generateOptionPosTable(data, struct) {
 		let foccn = (focused ? "低速" : "高速");
 		let foc = (focused ? "focused" : "unfocused");
 		let pos = data.option_pos[foc];
-		html += `<details class='collapsible-table'><summary>${foccn} - 子机位置</summary>`;
+		let positionClass = focused ? "option-position-focused" : "option-position-unfocused";
+		html += `<details class='collapsible-table option-position-table ${positionClass}'><summary>${foccn} - 子机位置</summary>`;
 		for (let i=1; i<pos.length;i++) {
-			html += `<details class='collapsible-table'><summary>${i} 火力</summary>`;
+			html += `<details class='collapsible-table option-position-power'><summary>${i} 火力</summary>`;
 			html += "<table>";
 			html += "<tr><th>子机</th><th>x</th><th>y</th></tr>"
 			for (let j=0; j<i; j++) {
@@ -872,8 +929,8 @@ function generateOptionPosTable(data, struct) {
 function generateShotOffsetTable(data, struct) {
 	log("generate sht_off table");
 	let offs = data.sht_off;
-	let html = "<details class='collapsible-table'><summary>射击偏移表 (只读)</summary>";
-	html += "<h3>此表格为只读状态，偏移量在导出时会重新计算（无法更改）</h3>";
+	let html = "<details class='collapsible-table shot-offset-table'><summary>射击偏移表 (只读)</summary>";
+	html += "<p class='shot-offset-note'>此表格为只读状态，偏移量在导出时会重新计算（无法更改）。</p>";
 	html += "<table>";
 	html += "<tr><th>no.</th><th>offset</th></tr>";
 	for (let i=0; i<offs.length; i++) {
@@ -957,6 +1014,28 @@ function generateShootArrayTable(data, struct) {
 					updateShooterSelection(i, e, $editor);
 					selectShooter(i, foc, pow, $editor);
 				});
+				$select.addEventListener("contextmenu", e => {
+					e.preventDefault();
+					let selected = selectedShooterIndices($editor);
+					if (!selected.includes(i)) {
+						selected = [i];
+						setShooterSelection($editor, selected);
+						$editor.dataset.selectionAnchor = i;
+					}
+					let previousIndex = Number($editor.dataset.selectedShooter);
+					if (Number.isInteger(previousIndex)) {
+						let bindingChanged = commitShooterEdits(previousIndex, foc, pow, $editor, null, false);
+						if (bindingChanged == null) return;
+						if (bindingChanged) refreshShooterSet(null, foc, pow, selected);
+					}
+					let batchEditor = tables.active && tables.active.querySelector(".shooter-editor");
+					if (!batchEditor) return;
+					batchEditor.dataset.selectedShooter = i;
+					batchEditor.querySelectorAll(".shooter-select").forEach(button => {
+						button.classList.toggle("active", Number(button.dataset.shooterIndex) == i);
+					});
+					showBatchShooterEditor(selectedShooterIndices(batchEditor), foc, pow, batchEditor);
+				});
 				$select.addEventListener("dragstart", e => {
 					if (!$select.draggable) {
 						e.preventDefault();
@@ -990,9 +1069,16 @@ function generateShootArrayTable(data, struct) {
 			$paste.type = "button";
 			$paste.textContent = "粘贴发射器";
 			$paste.addEventListener("click", pasteShooter);
+			let $invert = document.createElement("button");
+			$invert.type = "button";
+			$invert.textContent = "反选";
+			$invert.title = "反转当前火力组中的选择";
+			$invert.addEventListener("click", () => invertShooterSelection($editor));
 			$actions.appendChild($add);
 			$actions.appendChild($paste);
+			$actions.appendChild($invert);
 			$list.appendChild($actions);
+			enableShooterBoxSelection($list, $editor);
 			$editor.appendChild($list);
 			$editor.appendChild($inspector);
 			tables.sht_arr[foc][pow] = [$editor];
@@ -1079,12 +1165,16 @@ function selectShooter(index, foc, pow, editor) {
 	$inspector.appendChild($title);
 	let $note = document.createElement("p");
 	$note.className = "shooter-editor-note";
-	$note.textContent = "Ctrl/Shift 点击可多选；拖到子机组可改绑，Ctrl+C/V 可复制/粘贴。属性离开输入框后自动保存；角度按 Enter 转为弧度。";
+	$note.textContent = "Ctrl/Shift 点击或拖拽空白区域框选；右键批量编辑；可反选、拖到子机组改绑，Ctrl+C/X/V 复制、剪切、粘贴。";
 	$inspector.appendChild($note);
 
-	let $table = document.createElement("table");
-	$table.innerHTML = "<thead><tr><th>属性</th><th>数值</th></tr></thead>";
-	let $tbody = document.createElement("tbody");
+	let fieldSections = {
+		properties: createShooterFieldSection("属性", "shooter-properties", true),
+		effects: createShooterFieldSection("效果", "shooter-effects", true),
+		assets: createShooterFieldSection("素材", "shooter-assets", true),
+		flags: createShooterFieldSection("Flag", "shooter-flags", false),
+		other: createShooterFieldSection("其他", "shooter-other", true)
+	};
 	let shtstruct = currentStruct.sht_arr;
 	for (let j=0; j<shtstruct.length; j+=2) {
 		let stat = shtstruct[j];
@@ -1093,18 +1183,22 @@ function selectShooter(index, foc, pow, editor) {
 			let typeStr = currentStruct.flag_size == 2 ? "int16" : "int32";
 			let flagCount = currentStruct.flags_len/currentStruct.flag_size;
 			for (let flag=0; flag<flagCount; flag++) {
-				appendShooterField($tbody, "flag " + flag, shooter.flags[flag], typeStr, index + "-flag-" + flag,
+				appendShooterField(fieldSections.flags.tbody, "flag " + flag, shooter.flags[flag], typeStr, index + "-flag-" + flag,
 					{index: index, foc: foc, pow: pow, editor: editor});
 			}
 		} else {
 			let value = shooter[stat];
 			if (isShooterAngle(stat)) value = Number((Number(value) * 180 / Math.PI).toFixed(5));
 			let context = {index: index, foc: foc, pow: pow, stat: stat, editor: editor};
-			appendShooterField($tbody, isShooterAngle(stat) ? stat + "（度）" : stat, value, type, index + "-" + stat, context);
+			let category = getShooterFieldCategory(stat);
+			appendShooterField(fieldSections[category].tbody, isShooterAngle(stat) ? stat + "（度）" : stat,
+				value, type, index + "-" + stat, context);
 		}
 	}
-	$table.appendChild($tbody);
-	$inspector.appendChild($table);
+	Object.keys(fieldSections).forEach(key => {
+		let section = fieldSections[key];
+		if (section.tbody.children.length) $inspector.appendChild(section.details);
+	});
 
 	let $actions = document.createElement("div");
 	$actions.className = "shooter-inspector-actions";
@@ -1116,15 +1210,205 @@ function selectShooter(index, foc, pow, editor) {
 	$copy.type = "button";
 	$copy.textContent = "复制发射器";
 	$copy.addEventListener("click", () => copyShooter(index));
+	let $cut = document.createElement("button");
+	$cut.type = "button";
+	$cut.textContent = "剪切发射器";
+	$cut.addEventListener("click", () => cutSelectedShooters(editor));
 	let $delete = document.createElement("button");
 	$delete.type = "button";
 	$delete.textContent = "删除发射器";
 	$delete.addEventListener("click", () => removeShooter(index));
 	$actions.appendChild($save);
 	$actions.appendChild($copy);
+	$actions.appendChild($cut);
 	$actions.appendChild($delete);
 	$inspector.appendChild($actions);
 	if (bindingChanged) refreshShooterSet(index, foc, pow);
+};
+
+function createShooterFieldSection(title, classname, open) {
+	let details = document.createElement("details");
+	details.className = "shooter-field-section " + classname;
+	details.open = open;
+	let summary = document.createElement("summary");
+	summary.textContent = title;
+	details.appendChild(summary);
+	let table = document.createElement("table");
+	table.innerHTML = "<thead><tr><th>属性</th><th>数值</th></tr></thead>";
+	let tbody = document.createElement("tbody");
+	table.appendChild(tbody);
+	details.appendChild(table);
+	return {details: details, tbody: tbody};
+};
+
+function getShooterFieldCategory(stat) {
+	if (/纹理|音效|texture|sound/i.test(stat)) return "assets";
+	if (/效果|effect|func_/i.test(stat)) return "effects";
+	if (/间隔|延迟|速度|弹速|伤害|偏移|判定|角度|绑定子机|\bbind\b|\boption\b|damage|offset|interval|delay|speed|angle/i.test(stat)) {
+		return "properties";
+	}
+	return "other";
+};
+
+function getShooterBatchFields(struct) {
+	let fields = [];
+	for (let i=0; i<struct.sht_arr.length; i+=2) {
+		let property = struct.sht_arr[i];
+		let type = struct.sht_arr[i+1];
+		if (type == "flags") {
+			let flagType = struct.flag_size == 2 ? "int16" : "int32";
+			let flagCount = struct.flags_len / struct.flag_size;
+			for (let flag=0; flag<flagCount; flag++) {
+				fields.push({label: "Flag " + flag, property: "flags", flag: flag, type: flagType, category: "flags"});
+			}
+		} else {
+			fields.push({
+				label: isShooterAngle(property) ? property + "（度）" : property,
+				property: property,
+				type: type,
+				angle: isShooterAngle(property),
+				category: getShooterFieldCategory(property)
+			});
+		}
+	}
+	return fields;
+};
+
+function showBatchShooterEditor(indices, foc, pow, editor) {
+	let $inspector = editor.querySelector(".shooter-inspector");
+	$inspector.innerHTML = "";
+	let title = document.createElement("h3");
+	title.textContent = "批量编辑 " + indices.length + " 个发射器";
+	$inspector.appendChild(title);
+	let note = document.createElement("p");
+	note.className = "shooter-editor-note";
+	note.textContent = "勾选要修改的属性并输入新值；未勾选的属性保持不变。";
+	$inspector.appendChild(note);
+
+	let sections = {
+		properties: createShooterFieldSection("属性", "shooter-properties", true),
+		effects: createShooterFieldSection("效果", "shooter-effects", true),
+		assets: createShooterFieldSection("素材", "shooter-assets", true),
+		flags: createShooterFieldSection("Flag", "shooter-flags", false),
+		other: createShooterFieldSection("其他", "shooter-other", true)
+	};
+	let fields = getShooterBatchFields(currentStruct);
+	let inputs = [];
+	fields.forEach(field => {
+		let row = document.createElement("tr");
+		row.classList.add("shooter-batch-row");
+		let name = document.createElement("td");
+		let checkbox = document.createElement("input");
+		checkbox.type = "checkbox";
+		checkbox.className = "shooter-batch-enable";
+		name.appendChild(checkbox);
+		let label = document.createElement("span");
+		label.textContent = field.label;
+		name.appendChild(label);
+		let valueCell = document.createElement("td");
+		let input = document.createElement("input");
+		input.type = "number";
+		input.step = field.type == "float" ? "any" : "1";
+		input.placeholder = "不修改";
+		input.disabled = true;
+		checkbox.addEventListener("change", () => {
+			input.disabled = !checkbox.checked;
+			if (checkbox.checked) input.focus();
+		});
+		valueCell.appendChild(input);
+		row.appendChild(name);
+		row.appendChild(valueCell);
+		sections[field.category].tbody.appendChild(row);
+		inputs.push({field: field, checkbox: checkbox, input: input});
+	});
+	Object.keys(sections).forEach(key => {
+		let section = sections[key];
+		if (section.tbody.children.length) $inspector.appendChild(section.details);
+	});
+
+	let actions = document.createElement("div");
+	actions.className = "shooter-inspector-actions";
+	let apply = document.createElement("button");
+	apply.type = "button";
+	apply.textContent = "应用到选中发射器";
+	apply.addEventListener("click", () => {
+		let updates = [];
+		for (let item of inputs) {
+			if (!item.checkbox.checked) continue;
+			if (item.input.value.trim() == "") {
+				error("请为勾选的属性输入数值");
+				item.input.focus();
+				return;
+			}
+			let value = Number(item.input.value);
+			if (!Number.isFinite(value)) {
+				error("请输入有效的数值");
+				item.input.focus();
+				return;
+			}
+			if (item.field.angle) value *= Math.PI / 180;
+			let normalized = normalizeShooterBatchValue(value, item.field.type);
+			if (normalized == null) {
+				error("整数属性必须输入整数");
+				item.input.focus();
+				return;
+			}
+			updates.push({field: item.field, value: normalized});
+		}
+		if (!updates.length) {
+			error("请至少勾选一个属性");
+			return;
+		}
+		let shooters = indices.map(index => shtObject.sht_arr[foc][pow][index]).filter(Boolean);
+		if (!shooters.length) return error("没有可编辑的发射器");
+		if (!updates.some(update => shooters.some(shooter => {
+			let current = update.field.flag == null ? shooter[update.field.property] : shooter.flags[update.field.flag];
+			return !Object.is(Number(current), update.value);
+		}))) return;
+		recordUndoSnapshot();
+		for (let shooter of shooters) {
+			for (let update of updates) {
+				if (update.field.flag == null) shooter[update.field.property] = update.value;
+				else shooter.flags[update.field.flag] = update.value;
+			}
+		}
+		refreshShooterSet(indices[0], foc, pow, indices);
+	});
+	let cancel = document.createElement("button");
+	cancel.type = "button";
+	cancel.textContent = "返回属性";
+	cancel.addEventListener("click", () => selectShooter(Number(editor.dataset.selectedShooter), foc, pow, editor));
+	actions.appendChild(apply);
+	actions.appendChild(cancel);
+	$inspector.appendChild(actions);
+};
+
+function normalizeShooterBatchValue(value, type) {
+	let min = -Infinity, max = Infinity, requiresInteger = false;
+	switch (type) {
+		case "byte":
+			min = 0;
+			max = 255;
+			requiresInteger = true;
+		break;
+		case "int16":
+			min = -32768;
+			max = 32767;
+			requiresInteger = true;
+		break;
+		case "int32":
+			min = -2147483648;
+			max = 2147483647;
+			requiresInteger = true;
+		break;
+		case "uint32":
+			min = 0;
+			max = 4294967295;
+			requiresInteger = true;
+		break;
+	}
+	if (requiresInteger && !Number.isInteger(value)) return null;
+	return Math.min(max, Math.max(min, value));
 };
 
 function appendShooterField(tbody, label, value, type, stat, context) {
@@ -1159,6 +1443,25 @@ function appendShooterField(tbody, label, value, type, stat, context) {
 		dial = createShooterAngleDial(input, context);
 		cell.appendChild(input);
 		cell.appendChild(dial);
+		let controls = document.createElement("div");
+		controls.className = "shooter-angle-controls";
+		[1, 5, 10].forEach(step => {
+			let button = document.createElement("button");
+			button.type = "button";
+			button.textContent = "+" + step + "°";
+			button.title = "角度增加 " + step + " 度";
+			button.addEventListener("click", () => adjustShooterAngle(input, context, step, dial));
+			controls.appendChild(button);
+		});
+		[-1, -5, -10].forEach(step => {
+			let button = document.createElement("button");
+			button.type = "button";
+			button.textContent = step + "°";
+			button.title = "角度减少 " + Math.abs(step) + " 度";
+			button.addEventListener("click", () => adjustShooterAngle(input, context, step, dial));
+			controls.appendChild(button);
+		});
+		cell.appendChild(controls);
 	} else {
 		cell.appendChild(input);
 	}
@@ -1281,6 +1584,26 @@ function updateShooterAngleDial(input, dial) {
 	dial.setAttribute("aria-valuenow", degrees.toFixed(2));
 };
 
+function adjustShooterAngle(input, context, degreesToAdd, dial) {
+	if (input.value.trim() == "") return error("角度数值不能为空");
+	let value = Number(input.value);
+	if (!Number.isFinite(value)) return error("请输入有效的角度数值");
+	let degrees = input.dataset.angleMode == "radians" ? value * 180 / Math.PI : value;
+	let newDegrees = Number((degrees + degreesToAdd).toFixed(5));
+	input.dataset.angleMode = "degrees";
+	input.dataset.originalValue = "__angle-step-pending__";
+	input.value = newDegrees;
+	nameForShooterInput(input).textContent = context.stat + "（度）";
+	updateShooterAngleDial(input, dial);
+	let result = commitShooterEdits(context.index, context.foc, context.pow, context.editor, input, false);
+	if (result == null) return;
+	input.value = newDegrees;
+	input.dataset.angleMode = "degrees";
+	input.dataset.originalValue = input.value;
+	nameForShooterInput(input).textContent = context.stat + "（度）";
+	updateShooterAngleDial(input, dial);
+};
+
 function convertShooterAngleInput(input, context) {
 	if (input.dataset.angleMode == "radians") return;
 	if (input.value.trim() == "") return error("角度数值不能为空");
@@ -1291,7 +1614,11 @@ function convertShooterAngleInput(input, context) {
 	input.dataset.angleMode = "radians";
 	input.dataset.originalValue = input.value;
 	input.parentElement.previousElementSibling.textContent = context.stat + "（弧度）";
-	shtObject.sht_arr[context.foc][context.pow][context.index][context.stat] = radians;
+	let shooter = shtObject.sht_arr[context.foc][context.pow][context.index];
+	if (!Object.is(shooter[context.stat], radians)) {
+		recordUndoSnapshot();
+		shooter[context.stat] = radians;
+	}
 	updateShooterAngleDial(input, input.parentElement.querySelector(".shooter-angle-dial"));
 };
 
@@ -1300,7 +1627,7 @@ function confirmShooterEdits(index, foc, pow, editor) {
 };
 
 function commitShooterEdits(index, foc, pow, editor, onlyInput, refreshBinding) {
-	let inputs = Array.from(editor.querySelectorAll(".shooter-inspector input"));
+	let inputs = Array.from(editor.querySelectorAll(".shooter-inspector input[data-stat]"));
 	let updates = [];
 	let bindingChanged = false;
 	for (let input of inputs) {
@@ -1322,15 +1649,20 @@ function commitShooterEdits(index, foc, pow, editor, onlyInput, refreshBinding) 
 		updates.push({input: input, value: value});
 	}
 
-	for (let update of updates) {
-		update.input.value = update.value;
-		tableInput(update.input, update.value, update.input.dataset.valueType, update.input.dataset.stat);
-		if (isShooterAngle(update.input.dataset.stat.split("-").slice(1).join("-"))) {
-			update.input.dataset.angleMode = "radians";
-			update.input.parentElement.previousElementSibling.textContent =
-				update.input.dataset.stat.split("-").slice(1).join("-") + "（弧度）";
+	beginUndoTransaction();
+	try {
+		for (let update of updates) {
+			update.input.value = update.value;
+			tableInput(update.input, update.value, update.input.dataset.valueType, update.input.dataset.stat);
+			if (isShooterAngle(update.input.dataset.stat.split("-").slice(1).join("-"))) {
+				update.input.dataset.angleMode = "radians";
+				update.input.parentElement.previousElementSibling.textContent =
+					update.input.dataset.stat.split("-").slice(1).join("-") + "（弧度）";
+			}
+			update.input.dataset.originalValue = update.input.value;
 		}
-		update.input.dataset.originalValue = update.input.value;
+	} finally {
+		endUndoTransaction();
 	}
 	if (bindingChanged && refreshBinding !== false) refreshShooterSet(index, foc, pow);
 	return bindingChanged;
@@ -1356,6 +1688,7 @@ function addShooter(sht) {
 	let shooter = generateEmptyShooterFromStruct(currentStruct);
 	let [table, foc, pow] = activeTable;
 	let arr = shtObject.sht_arr[foc][pow];
+	recordUndoSnapshot();
 	arr.push(shooter);
 	refreshShooterSet(arr.length - 1, foc, pow);
 };
@@ -1363,6 +1696,8 @@ function addShooter(sht) {
 function removeShooter(i) {
 	let [table, foc, pow] = activeTable;
 	let arr = shtObject.sht_arr[foc][pow];
+	if (i < 0 || i >= arr.length) return;
+	recordUndoSnapshot();
 	arr.splice(i, 1);
 	refreshShooterSet(null, foc, pow);
 };
@@ -1386,6 +1721,7 @@ function generateEmptyShooterFromStruct(struct) {
 
 function addShooterset(foc) {
 	let arr = shtObject.sht_arr[foc];
+	recordUndoSnapshot();
 	arr.push(defaultShooterset(currentStruct.ver));
 	generateShootArrayTable(shtObject, currentStruct);
 	generateFileTree(true);
@@ -1393,6 +1729,8 @@ function addShooterset(foc) {
 
 function removeShooterset(foc, i) {
 	let arr = shtObject.sht_arr[foc];
+	if (i < 0 || i >= arr.length) return;
+	recordUndoSnapshot();
 	arr.splice(i, 1);
 	if (activeTable[0] == "sht_arr" && activeTable[1] == foc && activeTable[2] == i) {
 		$container.innerHTML = "";
@@ -1426,6 +1764,85 @@ function setShooterSelection(editor, indices) {
 	editor.querySelectorAll(".shooter-select").forEach($button => {
 		$button.classList.toggle("selected", selected.includes(Number($button.dataset.shooterIndex)));
 	});
+};
+
+function invertShooterSelection(editor) {
+	let selected = new Set(selectedShooterIndices(editor));
+	let inverted = Array.from(editor.querySelectorAll(".shooter-select"))
+		.filter(button => !button.disabled && !selected.has(Number(button.dataset.shooterIndex)))
+		.map(button => Number(button.dataset.shooterIndex));
+	setShooterSelection(editor, inverted);
+	editor.dataset.selectionAnchor = inverted.length ? inverted[0] : "";
+};
+
+function enableShooterBoxSelection(list, editor) {
+	list.addEventListener("pointerdown", e => {
+		if (e.button != 0 || e.target.closest(".shooter-select, button, input, summary")) return;
+		let box = document.createElement("div");
+		box.className = "shooter-selection-box";
+		list.appendChild(box);
+		shooterBoxSelection = {
+			list: list,
+			editor: editor,
+			box: box,
+			pointerId: e.pointerId,
+			startX: e.clientX,
+			startY: e.clientY,
+			additive: e.ctrlKey || e.metaKey || e.shiftKey,
+			initialSelection: selectedShooterIndices(editor)
+		};
+		list.setPointerCapture(e.pointerId);
+		e.preventDefault();
+	});
+
+	list.addEventListener("pointermove", e => {
+		if (!shooterBoxSelection || shooterBoxSelection.list != list || shooterBoxSelection.pointerId != e.pointerId) return;
+		updateShooterBoxSelection(e.clientX, e.clientY);
+	});
+
+	let finish = e => {
+		if (!shooterBoxSelection || shooterBoxSelection.list != list || shooterBoxSelection.pointerId != e.pointerId) return;
+		let state = shooterBoxSelection;
+		updateShooterBoxSelection(e.clientX, e.clientY);
+		let rect = normalizedRect(state.startX, state.startY, e.clientX, e.clientY);
+		if (rect.width >= 4 || rect.height >= 4) {
+			let hits = Array.from(list.querySelectorAll(".shooter-select"))
+				.filter(button => {
+					if (button.disabled) return false;
+					let buttonRect = button.getBoundingClientRect();
+					return buttonRect.left < rect.right && buttonRect.right > rect.left &&
+						buttonRect.top < rect.bottom && buttonRect.bottom > rect.top;
+				})
+				.map(button => Number(button.dataset.shooterIndex));
+			if (state.additive) hits = Array.from(new Set(state.initialSelection.concat(hits)));
+			setShooterSelection(editor, hits);
+			editor.dataset.selectionAnchor = hits.length ? hits[0] : "";
+		}
+		state.box.remove();
+		shooterBoxSelection = null;
+		if (list.hasPointerCapture(e.pointerId)) list.releasePointerCapture(e.pointerId);
+	};
+	list.addEventListener("pointerup", finish);
+	list.addEventListener("pointercancel", finish);
+};
+
+function normalizedRect(x1, y1, x2, y2) {
+	let left = Math.min(x1, x2);
+	let top = Math.min(y1, y2);
+	let right = Math.max(x1, x2);
+	let bottom = Math.max(y1, y2);
+	return {left: left, top: top, right: right, bottom: bottom, width: right - left, height: bottom - top};
+};
+
+function updateShooterBoxSelection(clientX, clientY) {
+	let state = shooterBoxSelection;
+	if (!state) return;
+	let rect = normalizedRect(state.startX, state.startY, clientX, clientY);
+	let listRect = state.list.getBoundingClientRect();
+	state.box.style.left = rect.left - listRect.left + state.list.scrollLeft + "px";
+	state.box.style.top = rect.top - listRect.top + state.list.scrollTop + "px";
+	state.box.style.width = rect.width + "px";
+	state.box.style.height = rect.height + "px";
 };
 
 function updateShooterSelection(index, event, editor) {
@@ -1462,6 +1879,26 @@ function updateShooterSelection(index, event, editor) {
 
 function handleShooterKeyboardShortcuts(event) {
 	let target = event.target;
+	let key = event.key.toLowerCase();
+	if ((event.ctrlKey || event.metaKey) && !event.altKey && (key == "z" || key == "y") &&
+		!(target && target.closest && target.closest(".eval-input, .filename, .editor-window"))) {
+		let changed = key == "y" || event.shiftKey ? redoEditorChange() : undoEditorChange();
+		if (changed) {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+		}
+		return;
+	}
+	if ((event.ctrlKey || event.metaKey) && !event.altKey && (key == "c" || key == "x") &&
+		target && target.closest && target.closest(".shooter-inspector")) {
+		let editor = tables.active && tables.active.querySelector(".shooter-editor");
+		let selected = editor && selectedShooterIndices(editor);
+		if (!selected || !selected.length) return;
+		event.preventDefault();
+		if (key == "c") copyShooter(selected[0]);
+		else cutSelectedShooters(editor);
+		return;
+	}
 	if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']")) return;
 	if (activeTable[0] != "sht_arr") return;
 	if (event.key == "Delete") {
@@ -1472,7 +1909,6 @@ function handleShooterKeyboardShortcuts(event) {
 		return;
 	}
 	if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-	let key = event.key.toLowerCase();
 	if (key == "c") {
 		let editor = tables.active && tables.active.querySelector(".shooter-editor");
 		if (!editor) return;
@@ -1480,9 +1916,126 @@ function handleShooterKeyboardShortcuts(event) {
 		if (!selected.length) return;
 		event.preventDefault();
 		copyShooter(selected[0]);
+	} else if (key == "x") {
+		let editor = tables.active && tables.active.querySelector(".shooter-editor");
+		if (!editor || !selectedShooterIndices(editor).length) return;
+		event.preventDefault();
+		cutSelectedShooters(editor);
 	} else if (key == "v" && clipboard.length) {
 		event.preventDefault();
 		pasteShooter();
+	}
+};
+
+function pushUndoSnapshot(snapshot) {
+	undoStack.push(snapshot);
+	if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+	redoStack.length = 0;
+};
+
+function recordUndoSnapshot() {
+	if (!shtObject) return;
+	if (undoTransactionDepth) {
+		undoTransactionChanged = true;
+		return;
+	}
+	pushUndoSnapshot(cloneObject(shtObject));
+};
+
+function beginUndoTransaction() {
+	if (undoTransactionDepth++ == 0) {
+		undoTransactionBefore = cloneObject(shtObject);
+		undoTransactionChanged = false;
+	}
+};
+
+function endUndoTransaction() {
+	if (!undoTransactionDepth) return;
+	undoTransactionDepth--;
+	if (undoTransactionDepth) return;
+	if (undoTransactionChanged) pushUndoSnapshot(undoTransactionBefore);
+	undoTransactionBefore = null;
+	undoTransactionChanged = false;
+};
+
+function commitPendingShooterEdits() {
+	let editor = tables.active && tables.active.querySelector(".shooter-editor");
+	if (!editor || editor.dataset.selectedShooter == null) return true;
+	let [, foc, pow] = activeTable;
+	return commitShooterEdits(Number(editor.dataset.selectedShooter), foc, pow, editor, null, false) != null;
+};
+
+function undoEditorChange() {
+	if (!shtObject || !commitPendingShooterEdits() || !undoStack.length) return false;
+	redoStack.push(cloneObject(shtObject));
+	shtObject = cloneObject(undoStack.pop());
+	refreshEditorAfterHistoryChange();
+	return true;
+};
+
+function redoEditorChange() {
+	if (!shtObject || !commitPendingShooterEdits() || !redoStack.length) return false;
+	undoStack.push(cloneObject(shtObject));
+	shtObject = cloneObject(redoStack.pop());
+	if (undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+	refreshEditorAfterHistoryChange();
+	return true;
+};
+
+function refreshEditorAfterHistoryChange() {
+	let previousTable = activeTable.slice();
+	let previousEditor = tables.active && tables.active.querySelector(".shooter-editor");
+	let selectedIndices = previousEditor ? selectedShooterIndices(previousEditor) : [];
+	let selectedShooter = previousEditor && previousEditor.dataset.selectedShooter != null ?
+		Number(previousEditor.dataset.selectedShooter) : null;
+	let table = previousTable[0], foc = previousTable[1], pow = previousTable[2];
+	let treeKey = table == "sht_arr" ? foc + "-" + pow : table;
+
+	generateEditorTables(shtObject, currentStruct, true);
+	let $button;
+	if (table == "sht_arr") {
+		let $entry = $filetree.querySelector("[data-tree='" + treeKey + "']");
+		$button = $entry && $entry.querySelector("span");
+	} else if (table == "main") {
+		let $entry = $filetree.querySelector("[data-tree='main']");
+		$button = $entry && $entry.querySelector("[data-tree='main-table']");
+	} else if (table == "spellname_arr") {
+		$button = $filetree.querySelector("[data-tree='option_pos'][onclick*='spellname_arr']");
+	} else if (table) {
+		$button = $filetree.querySelector("[data-tree='" + table + "']");
+	}
+
+	if (!$button) {
+		if (tables.active && tables.active.parentNode == $container) $container.removeChild(tables.active);
+		tables.active = null;
+		activeTable = [false];
+		let doc = getActiveDocument();
+		if (doc) {
+			doc.shtObject = shtObject;
+			doc.tables = tables;
+			doc.activeTable = activeTable;
+		}
+		return;
+	}
+
+	loadTable(table, foc, pow, $button);
+	if (table == "sht_arr") {
+		let editor = tables.active.querySelector(".shooter-editor");
+		if (editor) {
+			setShooterSelection(editor, selectedIndices);
+			if (selectedShooter != null && shtObject.sht_arr[foc][pow][selectedShooter]) {
+				selectShooter(selectedShooter, foc, pow, editor);
+			}
+		}
+	}
+	let doc = getActiveDocument();
+	if (doc) {
+		doc.shtObject = shtObject;
+		doc.currentStruct = currentStruct;
+		doc.tables = tables;
+		doc.activeTable = activeTable;
+		doc.undoStack = undoStack;
+		doc.redoStack = redoStack;
 	}
 };
 
@@ -1495,8 +2048,26 @@ function deleteSelectedShooters(editor) {
 		let result = commitShooterEdits(Number(editor.dataset.selectedShooter), foc, pow, editor, null, false);
 		if (result == null) return;
 	}
+	indices = indices.filter(index => index >= 0 && index < arr.length);
+	if (!indices.length) return;
+	recordUndoSnapshot();
 	indices.sort((a, b) => b - a).forEach(index => arr.splice(index, 1));
 	refreshShooterSet(null, foc, pow, []);
+};
+
+function cutSelectedShooters(editor) {
+	let indices = selectedShooterIndices(editor);
+	if (!indices.length) return;
+	if (editor.dataset.selectedShooter != null) {
+		let [, foc, pow] = activeTable;
+		let result = commitShooterEdits(Number(editor.dataset.selectedShooter), foc, pow, editor, null, false);
+		if (result == null) return;
+	}
+	copyShooter(indices[0]);
+	let count = clipboard.length;
+	if (!count) return;
+	deleteSelectedShooters(editor);
+	updateClipboardInfo(count + " 发射器已剪切");
 };
 
 function changeShooterBinding(indices, bindNumber, foc, pow, editor) {
@@ -1510,11 +2081,14 @@ function changeShooterBinding(indices, bindNumber, foc, pow, editor) {
 		error("所选发射器无法更改子机绑定");
 		return;
 	}
+	if (!shooters.some(shooter => Number(shooter[getShooterBindProperty(shooter)]) !== bindNumber)) return;
+	recordUndoSnapshot();
 	for (let shooter of shooters) shooter[getShooterBindProperty(shooter)] = bindNumber;
 	refreshShooterSet(indices[0], foc, pow, indices);
 };
 
 function cloneObject(obj) {
+	if (obj === null || typeof obj != "object") return obj;
 	let ret = Array.isArray(obj) ? [] : {};
 	for (let key in obj) ret[key] = typeof obj[key] == "object" ? cloneObject(obj[key]) : obj[key];
 	return ret;
@@ -1552,6 +2126,7 @@ function pasteShooter() {
 	if (!clipboard.length) return;
 	let firstAdded = arr.length;
 	let selectedIndices = [];
+	recordUndoSnapshot();
 	for (let i=0; i<clipboard.length; i++) {
 		let sht = cloneObject(clipboard[i]);
 		arr.push(sht);
