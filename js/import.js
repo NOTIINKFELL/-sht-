@@ -1,17 +1,159 @@
 let file = null;
 let reader = null;
+let sourceFileHandle = null;
+let pendingSourceFileHandle = null;
+let pendingFileName = "";
 
-function openFile(files) {
+function updateSourceOverwriteControl() {
+	let canOverwrite = !!(sourceFileHandle && sourceFileHandle.createWritable);
+	document.querySelector(".overwrite-source").disabled = !canOverwrite;
+	let showNote = exportType == EXPORT.SHT && !canOverwrite;
+	document.querySelector(".overwrite-source-note").style.display = showNote ? "block" : "none";
+}
+
+function openFile(files, handle) {
+	if (!files || !files.length) return;
 	let sht = files[0];
-	$filename.value = sht.name;
+	pendingSourceFileHandle = handle || null;
+	pendingFileName = sht.name;
+	document.querySelector(".selected-file").innerText = sht.name;
 	reader = new FileReader();
-	reader.onload = f => file = f;
+	reader.onload = f => {
+		file = f;
+		let version = detectShtVersion(new Uint8Array(f.target.result));
+		if (version) $ver.value = version;
+	};
 	reader.readAsArrayBuffer(sht);
 };
 
+function detectShtVersion(arr) {
+	let options = Array.from($ver.options);
+	let matches = [];
+	let previousLogState = suppressLogs;
+	suppressLogs = true;
+	try {
+		for (let i=0; i<options.length; i++) {
+			let value = options[i].value;
+			try {
+				let struct = getStruct(value, true);
+				let data = readSht(arr, struct);
+				if (isValidShtVersionCandidate(arr, data, struct)) {
+					matches.push({value: value, order: i});
+				}
+			} catch(e) {
+				continue;
+			}
+		}
+	} finally {
+		suppressLogs = previousLogState;
+	}
+
+	if (!matches.length) {
+		log("无法自动识别 .sht 版本，请手动选择版本。");
+		return null;
+	}
+	if (matches.length > 1) {
+		log("检测到多个结构兼容的版本，已选择列表中优先级最高的版本。");
+	}
+	return matches[0].value;
+}
+
+function isValidShtVersionCandidate(arr, data, struct) {
+	let count = Number(data.sht_off_cnt);
+	if (!Number.isInteger(count) || count < 1 || count > arr.length / 4) return false;
+	if (struct.forced_shtoffarr_len && count != struct.forced_shtoffarr_len) return false;
+	if (data.real_sht_off_cnt != data.sht_off.length || data.real_sht_off_cnt < 1) return false;
+
+	let shooterSetCount = data.sht_arr.unfocused.length + data.sht_arr.focused.length +
+		data.sht_arr.extra.length + data.sht_arr.main.length;
+	if (shooterSetCount != data.real_sht_off_cnt) return false;
+
+	let shtDataOffset = getShtDataOffset(data, struct);
+	let recordSize = getShtRecordSize(struct);
+	if (!Number.isInteger(shtDataOffset) || recordSize < 1) return false;
+
+	let offsets = data.sht_off.map(value => struct.sht_off_type == "rel" ? shtDataOffset + value : value);
+	if (offsets.some((value, i) => !Number.isInteger(value) || value < shtDataOffset || value >= arr.length - 4 ||
+		(i > 0 && value <= offsets[i - 1]))) return false;
+
+	let dataEnd = arr.length;
+	while (dataEnd > 0 && arr[dataEnd - 1] == 0) dataEnd--;
+	if (arr.length - dataEnd > 16) return false;
+	for (let i=0; i<offsets.length; i++) {
+		let end = i + 1 < offsets.length ? offsets[i + 1] : dataEnd;
+		let segmentLength = end - offsets[i];
+		if (segmentLength < 4 || (segmentLength - 4) % recordSize != 0) return false;
+		if (arr[end - 1] != 255 || arr[end - 2] != 255 || arr[end - 3] != 255 || arr[end - 4] != 255) return false;
+	}
+	return true;
+}
+
+function getShtDataOffset(data, struct) {
+	let offset = 0;
+	for (let i=0; i<struct.main.length; i+=2) {
+		let type = struct.main[i + 1].split("@")[0];
+		if (type == "sht_arr") return offset;
+		if (type == "option_pos") {
+			offset += struct.option_pos_len;
+		} else if (type == "sht_off") {
+			offset += data.sht_off_cnt * struct.sht_off.length / 2 * 4;
+		} else if (type == "spellname_arr") {
+			offset += struct.spellname_arr_len * struct.spellname_len;
+		} else {
+			offset += getShtTypeSize(type);
+		}
+	}
+	return NaN;
+}
+
+function getShtRecordSize(struct) {
+	let size = 0;
+	for (let i=0; i<struct.sht_arr.length; i+=2) {
+		let type = struct.sht_arr[i + 1];
+		size += type == "flags" ? struct.flags_len : getShtTypeSize(type);
+	}
+	return size;
+}
+
+function getShtTypeSize(type) {
+	switch (type) {
+		case "byte": return 1;
+		case "int16": return 2;
+		case "int32":
+		case "uint32":
+		case "float": return 4;
+		default: return 0;
+	}
+}
+
+async function chooseShtFile() {
+	if (!window.showOpenFilePicker) {
+		document.querySelector(".open .file-input").click();
+		return;
+	}
+
+	try {
+		let handles = await window.showOpenFilePicker({
+			multiple: false,
+			types: [{
+				description: "SHT files",
+				accept: {"application/octet-stream": [".sht"]}
+			}]
+		});
+		let handle = handles[0];
+		openFile([await handle.getFile()], handle);
+	} catch(e) {
+		if (e.name == "AbortError") return;
+		error(e.toString());
+		throw e;
+	}
+}
+
 function openFileJson(files) {
+	if (!files || !files.length) return;
+	pendingSourceFileHandle = null;
 	let json = files[0];
-	$filename.value = json.name;
+	pendingFileName = json.name;
 	reader = new FileReader();
 	reader.onload = f => file = f;
 	reader.readAsBinaryString(json);
@@ -24,12 +166,17 @@ function readFile() {
 	log("file loaded");
 	console.log(array);
 	let struct = getStruct($ver);
-	currentStruct = struct;
 	log("sht version "+$ver.value);
 	try {
 		let data = readSht(array, struct);
-		generateEditorTable(data, struct);
-		setFileInfo($filename.value + " (v"+struct.ver+")");
+		generateEditorTable(data, struct, {
+			fileName: pendingFileName,
+			sourceFileHandle: pendingSourceFileHandle
+		});
+		pendingSourceFileHandle = null;
+		pendingFileName = "";
+		file = null;
+		reader = null;
 	} catch(e) {
 		log("An error has occurred while parsing the .sht file. Have you selected the right .sht version?");
 		error(e.toString());
@@ -51,12 +198,13 @@ function readFileJson() {
 	log("file loaded (JSON)");
 
 	let struct = getStruct($verInJson);
-	currentStruct = struct;
 	log("sht version "+$verInJson.value);
 
 	try {
-		generateEditorTable(data, struct);
-		setFileInfo($filename.value + " (v"+struct.ver+")");
+		generateEditorTable(data, struct, {fileName: pendingFileName});
+		pendingFileName = "";
+		file = null;
+		reader = null;
 	} catch(e) {
 		log("An error has occurred while loading the .json file. Have you selected the right game version?");
 		error(e.toString());
@@ -119,7 +267,7 @@ function readSht(arr, struct) {
 			break;
 			case "sht_arr":
 				len = 99999999999999999999999;
-				val = readShtArr(arr, offset, data.sht_off, struct.sht_arr, struct.flags_len, struct.flag_size, data.最大power, struct.sht_off_type, data.powers);
+				val = readShtArr(arr, offset, data.sht_off, struct.sht_arr, struct.flags_len, struct.flag_size, data.最大power, struct.sht_off_type, data.powers, struct);
 			break;
 			case "spellname_arr": // thanks PoFV
 				val = [];
@@ -140,7 +288,7 @@ function readSht(arr, struct) {
 	return data;
 };
 
-function readShtArr(arr, offset, sht_off, struct, flags_len, flag_size, pwr_lvl_cnt, off_type, powers) {
+function readShtArr(arr, offset, sht_off, struct, flags_len, flag_size, pwr_lvl_cnt, off_type, powers, gameStruct) {
 	let shooters = {
 		unfocused: [],
 		focused: [],
@@ -149,10 +297,10 @@ function readShtArr(arr, offset, sht_off, struct, flags_len, flag_size, pwr_lvl_
 	};
 	for (let i=0; i<sht_off.length; i++){
 		let foc;
-		if (currentStruct.type == "maingame" && currentStruct.f_uf_shooter_split) {
+		if (gameStruct.type == "maingame" && gameStruct.f_uf_shooter_split) {
 			foc = i >= (pwr_lvl_cnt+1) ? "focused" : "unfocused";	
 			if (i >= (pwr_lvl_cnt+1)*2) foc = "extra";
-		} else if (currentStruct.f_uf_shooter_split) {
+		} else if (gameStruct.f_uf_shooter_split) {
 			// photogames are weird
 			foc = "extra";
 		} else {

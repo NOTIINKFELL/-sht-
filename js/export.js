@@ -1,4 +1,4 @@
-function exportSht() {
+async function exportSht() {
 	let name = $filename.value;
 	if (name == "")
 		name = exportType == EXPORT.JSON ? "export.json" : "export.sht";
@@ -23,6 +23,24 @@ function exportSht() {
 	// global var set in ui.js
 	switch(exportType) {
 		case EXPORT.SHT:
+			if ($export.querySelector(".overwrite-source").checked) {
+				if (!sourceFileHandle) {
+					error("当前没有可写入的源文件句柄。请在支持的浏览器中使用“选择 .sht 文件”重新打开，或取消覆盖选项后另存为。");
+					return;
+				}
+				try {
+					if (!sourceFileHandle.createWritable) throw new Error("此浏览器不支持写入源文件");
+					let writable = await sourceFileHandle.createWritable();
+					await writable.write(new Uint8Array(arr));
+					await writable.close();
+					log("已覆盖源文件 " + sourceFileHandle.name);
+				} catch(e) {
+					log("An error has occurred while overwriting the source .sht file.");
+					error(e.toString());
+					throw e;
+				}
+				break;
+			}
 			saveDataToFile([new Uint8Array(arr)], name);	
 			break;
 

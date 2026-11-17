@@ -3,7 +3,7 @@ let version = "2.5a";
 let changelog = [
 	"add UDoALG support (very experimental, there are unknown fields and some may have incorrect sizes!)"
 ];
-let $fileinfo, $console, $logs, $evalInput, $radDeg, $radInput, $degInput, $filetree, $container, $tip, $open, $ver, 
+let $fileinfo, $console, $logs, $evalInput, $radDeg, $radInput, $degInput, $filetree, $container, $documentTabs, $tip, $open, $ver, 
 	$verOut, $filename, $export, $log, $clipboard, $openLS, $openLSsel, currentStruct, saveByteArray, validationOff = false;
 
 function getStruct($sel, raw) {
@@ -66,6 +66,7 @@ window.onload = () => {
 
 	$filetree = document.querySelector(".file-tree");
 	$container = document.querySelector(".table-container");
+	$documentTabs = document.querySelector(".document-tabs");
 	$tip = document.querySelector(".tip");
 
 	$open = document.querySelector(".open");

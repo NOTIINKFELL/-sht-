@@ -70,6 +70,8 @@
         </div>
     </div>
 
+    <div class="document-tabs" role="tablist" aria-label="已打开的 SHT 文件"></div>
+
     <div class="main-wrapper">
         <div class="file-tree"></div>
         <div class="table-container"></div>
@@ -117,6 +119,8 @@
         </div>
         <div class="open">
             <input type="file" class="file-input" accept=".sht" onchange="openFile(this.files)">
+            <button onclick="chooseShtFile()">选择 .sht 文件</button>
+            <span class="selected-file">未选择文件</span>
             <button onclick="readFile()">加载</button>
             <div class="version-select">
                 <select class="sht-ver">
@@ -146,6 +150,8 @@
         </div>
         <div class="export">
             <input placeholder="文件名" class="filename"> <button onclick="exportSht()">保存</button>
+            <label class="overwrite-source-option"><input type="checkbox" class="overwrite-source" disabled> 直接覆盖导入的 .sht 源文件（无确认）</label>
+            <small class="overwrite-source-note">需要浏览器支持文件写入权限；否则请使用另存为。</small>
             <div class="version-select">
                 <select class="sht-ver-out"></select>
                 选择 .sht 版本
