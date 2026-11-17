@@ -12,7 +12,7 @@ window.struct_12 = {
 		"高速斜向移速", "float",
 		"低速斜向移速", "float",
 		"最大power", "int16",
-		"帧数上限（未使用）", "int16",
+		"帧伤上限（未使用）", "int16",
 		"地灵殿_火力除数", "int32",
 		"option_pos", "option_pos",
 		"sht_off", "sht_off",
