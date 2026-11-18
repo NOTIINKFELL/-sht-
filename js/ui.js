@@ -905,6 +905,8 @@ function generateEditorTables(data, struct, preserveTree) {
 
 	let editableRows = "";
 	let unusedRows = "";
+	let unknownRows = "";
+	let offsetCountRows = "";
 	for (let i=0; i<struct.main.length; i+=2) {
 		let stat = struct.main[i];
 		let type = struct.main[i+1];
@@ -922,11 +924,13 @@ function generateEditorTables(data, struct, preserveTree) {
 				<td>${stat}</td>
 				<td><input value="${data[stat]}" data-type="${type}" data-stat="${stat}"></td>
 			</tr>`;
-			if (/未使用|unused/i.test(stat) || /unused/i.test(type)) unusedRows += row;
+			if (stat == "sht_off_cnt" || stat == "real_sht_off_cnt") offsetCountRows += row;
+			else if (/unknown/i.test(stat)) unknownRows += row;
+			else if (/未使用|unused/i.test(stat) || /unused/i.test(type)) unusedRows += row;
 			else editableRows += row;
 		};
 	};
-	editableRows += `
+	offsetCountRows += `
 	<tr>
 		<td data-type="the amount of shootersets there actually are - the rest of the offset array will be filled with 0s">real_sht_off_cnt</td>
 		<td><input value="${data.real_sht_off_cnt}" data-type="int32" data-stat="real_sht_off_cnt"></td>
@@ -938,6 +942,12 @@ function generateEditorTables(data, struct, preserveTree) {
 		html += "<details class='main-attribute-section main-unused-section'><summary>未使用属性</summary>";
 		html += "<table><thead><tr><th>属性</th><th>数值</th></tr></thead><tbody>" + unusedRows + "</tbody></table></details>";
 	}
+	if (unknownRows) {
+		html += "<details class='main-attribute-section main-unknown-section'><summary>Unknown</summary>";
+		html += "<table><thead><tr><th>属性</th><th>数值</th></tr></thead><tbody>" + unknownRows + "</tbody></table></details>";
+	}
+	html += "<details class='main-attribute-section main-offset-count-section'><summary>SHT 偏移计数</summary>";
+	html += "<table><thead><tr><th>属性</th><th>数值</th></tr></thead><tbody>" + offsetCountRows + "</tbody></table></details>";
 	html += "</details>";
 
 	let $main = document.createElement("div");

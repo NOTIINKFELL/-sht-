@@ -730,6 +730,12 @@ input.eval-input {
 .main-unused-section {
   border-left: 3px solid #d59b52;
 }
+.main-unknown-section {
+  border-left: 3px solid #a68bd4;
+}
+.main-offset-count-section {
+  border-left: 3px solid #63b7a4;
+}
 .main-attribute-table th,
 .option-position-table th,
 .shot-offset-table th {
